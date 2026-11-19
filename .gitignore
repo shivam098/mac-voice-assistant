@@ -1,0 +1,16 @@
+# macOS and Xcode
+.DS_Store
+.build/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+# Resolved on CI from thumbfree-mac's main until the first release pins a version
+Package.resolved
+# Models and outputs
+*.onnx
+*.bin
+*.gguf
+/models/
+/dist/

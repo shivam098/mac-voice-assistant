@@ -1,0 +1,48 @@
+name: Mac
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # thumbfree-mac's main is a dependency: a daily build catches a change there that breaks this app.
+  schedule:
+    - cron: '30 5 * * *'
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-${{ github.run_id }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve (thumbfree-mac at the tip of main)
+        run: |
+          swift package update
+          cat Package.resolved
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Tests
+        run: swift test
