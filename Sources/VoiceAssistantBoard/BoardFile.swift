@@ -29,7 +29,9 @@ enum BoardFile {
 
     /// The notes in `data`, and their times as written (by id). A time without an offset is read in `localZone`.
     static func read(_ data: Data, localZone: TimeZone) throws -> (items: [BoardItem], stamps: [String: Stamps]) {
-        guard let file = try JSONDecoder().decode(FileModel?.self, from: utf8(data)) else { return ([], [:]) }
+        let json = utf8(data)
+        guard isStrictJSON([UInt8](json)) else { throw Unreadable() }
+        guard let file = try JSONDecoder().decode(FileModel?.self, from: json) else { return ([], [:]) }
         var items: [BoardItem] = []
         var stamps: [String: Stamps] = [:]
         // A null in the list is skipped (C# keeps it as a null note, which then fails wherever it's used).
@@ -162,13 +164,14 @@ enum BoardFile {
             lines.append(#"  "items": ["#)
             for (index, item) in items.enumerated() {
                 let stamp = stamps[item.id]
-                let created = time(item.created, stamp?.created, zone)
-                let due = item.due.map { string(time($0, stamp?.due, zone)) } ?? "null"
+                // System.Text.Json writes a DateTimeOffset as is: its "+" isn't escaped as a string's would be.
+                let created = "\"" + time(item.created, stamp?.created, zone) + "\""
+                let due = item.due.map { "\"" + time($0, stamp?.due, zone) + "\"" } ?? "null"
                 lines.append("    {")
                 lines.append(#"      "id": "# + string(item.id) + ",")
                 lines.append(#"      "list": "# + string(item.list.rawValue) + ",")
                 lines.append(#"      "text": "# + string(item.text) + ",")
-                lines.append(#"      "created": "# + string(created) + ",")
+                lines.append(#"      "created": "# + created + ",")
                 lines.append(#"      "due": "# + due + ",")
                 lines.append(#"      "done": "# + (item.done ? "true" : "false") + ",")
                 lines.append(#"      "notified": "# + (item.notified ? "true" : "false") + ",")
