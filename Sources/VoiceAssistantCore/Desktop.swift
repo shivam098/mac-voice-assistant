@@ -130,6 +130,10 @@ public struct DesktopWindow: Equatable, Sendable {
 /// (VoiceAssistantMac), faked in tests. Methods that wait can throw `CancellationError` when their task is cancelled,
 /// as C#'s take a `CancellationToken`; typing and keys throw what the platform reports, and typing stops there.
 public protocol JarvisDesktop: AnyObject {
+    /// The window that has the keyboard focus. On the Mac its `processName` is the bundle identifier of the app that
+    /// has the keyboard focus (the system-wide Accessibility element's `AXFocusedApplication`), not
+    /// `NSWorkspace.frontmostApplication`: Spotlight, Raycast, Alfred and LaunchBar show panels without activating
+    /// their app, so the frontmost app would be the one behind the panel. The brain's checks (`brainPlatform`) read it.
     func foregroundWindow() -> WindowInfo?
 
     /// Opens or activates the app. With `newWindow`, an already-running app with `AppEntry.newWindowKeys` gets a fresh
@@ -200,12 +204,12 @@ public protocol JarvisDesktop: AnyObject {
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
 
-    /// The platform's places the brain treats specially: where it never types, the browsers, the file managers.
-    /// Default: Windows'.
-    var brainPlaces: BrainPlaces { get }
+    /// The platform's meanings for the brain's limits: where it never types, the browsers and the file manager, the
+    /// button words, program files and keys. No default, so a desktop can't get another platform's by leaving it out.
+    var brainPlatform: BrainPlatform { get }
 
     /// A window where text or keys can run a command: the brain never types or presses keys there. Default:
-    /// `BrainSafety.isCommandWindow` with `brainPlaces`; a platform adds the windows it recognises.
+    /// `BrainSafety.isCommandWindow` with `brainPlatform`; a platform adds the windows it recognises.
     func isCommandWindow(_ window: WindowInfo) -> Bool
 }
 
@@ -246,7 +250,5 @@ extension JarvisDesktop {
 
     public func describeFocus() -> FocusInfo? { nil }
 
-    public var brainPlaces: BrainPlaces { .windows }
-
-    public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlaces) }
+    public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlatform) }
 }

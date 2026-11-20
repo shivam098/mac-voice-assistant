@@ -2,8 +2,28 @@ import Foundation
 import ThumbFreeCore
 
 /// The brain's limits, enforced in code whatever the model says: which keys it may press, which links it may open,
-/// which windows it may type into, and what needs a "yes" first. The windows differ by platform (`BrainPlaces`); keys
-/// are named as the C# core names them on every platform: the prompt asks the model for Windows keys.
+/// which windows it may type into, and what needs a "yes" first. What the places, button words, program files and keys
+/// mean depends on the platform (`BrainPlatform`), which every such check takes.
+///
+/// Plans name keys the C# core's way, as on Windows, on every platform: the prompt is Windows', for parity. On Windows
+/// a chord is pressed as named. On the Mac it is pressed as its Mac chord (`pressedChord`), and it is refused, or needs
+/// a "yes", if Windows' rules say so for the chord as named or the Mac's say so for the Mac chord. The Mac chords:
+/// - a `ShortcutKeys` shortcut is the Mac's: Ctrl+Y is ⇧⌘Z, Alt+Left ⌘[, Alt+Right ⌘], Alt+Up ⌘↑, F5 ⌘R, Ctrl+Tab
+///   stays ⌃Tab and Ctrl+Backspace is ⌥⌫; Win+Up (maximize) has no Mac key;
+/// - Alt+F4 and Ctrl+F4 are ⌘W, Ctrl+F5 ⇧⌘R, F11 ⌃⌘F, Win+Down ⌘M and Win+M ⌥⌘M;
+/// - the other Win chords, and a modifier on its own, have no Mac key and are refused;
+/// - Ctrl with an arrow, Backspace or Delete, and without Alt, becomes ⌥, the Mac's word and paragraph key
+///   (Ctrl+Shift+Left is ⌥⇧←, Ctrl+Down ⌥↓); any other Ctrl becomes ⌘ (Ctrl+L is ⌘L, Ctrl+Space ⌘Space);
+/// - Alt, Shift and the keys stay as they are.
+///
+/// The Mac refuses ⌘Space and ⌥⌘Space (Spotlight, Finder's search), ⌘Q and ⌥⌘Q (quit), ⇧⌘Q and ⌥⇧⌘Q (log out),
+/// ⌃⌘Q (lock the screen), ⌥⌘⎋ and ⌥⇧⌘⎋ (force quit), ⌘⌫ and ⌥⌘⌫ (delete), ⇧⌘⌫ and ⌥⇧⌘⌫ (empty the Trash), ⌘D
+/// (Don't Save), ⌘↓ with any other modifiers (open, in Finder and file dialogs), ⌘F5 and ⌥⌘F5 (VoiceOver and the
+/// accessibility shortcuts), ⌃F2, ⌃F3 and ⌃F8 (the menu bar, the Dock and the status menus) and the clipboard's ⌘C,
+/// ⌘X, ⌘V, ⇧⌘V, ⌥⌘V, ⌥⇧⌘V and ⌥⌘C. It asks before ⌘W, ⌥⌘W and ⇧⌘W (closing), ⇧⌘D (Mail's Send), Delete (⌦) with any
+/// modifiers, and Backspace (⌫) with any modifiers unless the focus is an editable text box: elsewhere ⌫ deletes the
+/// selected message, note or event. So Win+D, Win+Down, Ctrl+Space, Ctrl+Alt+Esc and Ctrl+Backspace can't become ⌘D,
+/// ⌘↓, ⌘Space, ⌥⌘⎋ or ⌘⌫. (The keys pressed are named as `ShortcutKeys` says the desktop presses them.)
 public enum BrainSafety {
     /// Longer text needs a "yes" first.
     public static let maxTypedWithoutAsking = 200
@@ -45,12 +65,6 @@ public enum BrainSafety {
     /// open an address in a new tab), Space and Alt+S.
     private static let submitChords = IgnoreCaseSet(["Enter", "Space", "Alt+S"])
 
-    private static let sendWords = [
-        "send", "post", "submit", "publish", "tweet", "share", "comment", "reply all", "forward", "install", "allow",
-        "accept", "agree", "approve", "confirm", "run", "end task", "end process", "run anyway", "keep anyway",
-        "repost", "retweet",
-    ]
-
     private static let searchBoxWords = ["search", "find", "filter", "query"]
 
     // Host names that only exist on a local network (and reserved ones): never opened, typed or searched as addresses.
@@ -80,12 +94,6 @@ public enum BrainSafety {
         #"://|^\s*(javascript|vbscript|data|file|blob|about|chrome|edge|brave|opera|vivaldi|view-source|filesystem|"#
             + #"search-ms|shell|ms-[a-z-]+)\s*:|^\s*\\\\|^\s*[a-z]:[\\/]|\blocalhost\b|\b\d{1,3}(\.\d{1,3}){3}\b|"#
             + #"\b0x[0-9a-f]+\."#,
-        .ignoreCase)
-
-    // The extension ends the name (or comes before a comma, as Explorer adds details): "Node.js tutorial" isn't a file.
-    private static let programFile = NetRegex(
-        #"\.(exe|bat|cmd|com|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|msi|msix|msixbundle|appx|appxbundle|scr|hta|jar|reg|lnk|"#
-            + #"cpl|inf|url|application)\s*(,|$)"#,
         .ignoreCase)
 
     /// One line without control characters, at most `max` characters (UTF-16 units, as in C#). Double quotes become
@@ -157,8 +165,62 @@ public enum BrainSafety {
         return (modifierOrder.filter { modifiers.contains($0) } + [pressed]).joined(separator: "+")
     }
 
-    /// Why the brain never presses `chord`, or nil if it may.
-    public static func refusalReason(_ chord: String) -> String? {
+    /// Why the brain never presses `chord` (a plan's keys, as `normalizeChord` writes them), or nil if it may. On the
+    /// Mac, also why it never presses the chord's Mac keys, or that there are none.
+    public static func refusalReason(_ chord: String, _ platform: BrainPlatform) -> String? {
+        if let reason = windowsRefusalReason(chord) {
+            return reason
+        }
+
+        guard platform.kind == .mac else { return nil }
+        guard let mac = macChord(chord) else { return "a Mac has no key for it" }
+        return macRefusalReason(mac)
+    }
+
+    /// Win shortcuts other than window arranging (Win+R, Win+X, the Start menu…), Ctrl+Esc, clipboard and menu keys;
+    /// on the Mac also what `macRefusalReason` refuses.
+    public static func isBlockedChord(_ chord: String, _ platform: BrainPlatform) -> Bool {
+        refusalReason(chord, platform) != nil
+    }
+
+    /// Whether pressing `chord` needs a "yes" first. `focus` is what has the focus, nil if it wasn't read or isn't
+    /// known; read it first where `focusDecides` (on the Mac, Backspace asks unless the focus is an editable text box).
+    public static func needsConfirmation(_ chord: String, _ platform: BrainPlatform, focus: FocusInfo?) -> Bool {
+        if confirmChords.contains(chord) || altAccessKey.isMatch(chord) {
+            return true
+        }
+
+        guard platform.kind == .mac, let mac = macChord(chord) else { return false }
+        return macNeedsConfirmation(mac, focus: focus)
+    }
+
+    /// Whether `needsConfirmation` depends on what has the focus: on the Mac, for a Backspace.
+    public static func focusDecides(_ chord: String, _ platform: BrainPlatform) -> Bool {
+        guard platform.kind == .mac, let mac = macChord(chord) else { return false }
+        return DotNet.ordinalEquals(lastPiece(mac), "Backspace")
+    }
+
+    /// The keys to press for `chord`: on Windows the chord as named; on the Mac its Mac chord (in `BrainSafety`'s
+    /// list), or nil when the Mac has no key for it, and `refusalReason` refuses it.
+    public static func pressedChord(_ chord: String, _ platform: BrainPlatform) -> String? {
+        platform.kind == .mac ? macChord(chord) : chord
+    }
+
+    /// Enter, Space, Alt+S or Enter with modifiers: they submit what's in a box or press the focused button. Judged on
+    /// the chord as named, whose Mac chord submits in the same way.
+    public static func isSubmitChord(_ chord: String) -> Bool {
+        submitChords.contains(chord) || NetText.endsWithOrdinalIgnoreCase(chord, "+Enter")
+    }
+
+    /// A key that types a character when a text box has the focus ("M", "Shift+7"): typing, as far as the limits go.
+    /// The Mac chord is the same key.
+    public static func isCharacterKey(_ chord: String) -> Bool {
+        let length = chord.utf16.count
+        return length == 1 || (length == 7 && NetText.startsWithOrdinalIgnoreCase(chord, "Shift+"))
+    }
+
+    /// The C#'s refusals, on the chord as named.
+    private static func windowsRefusalReason(_ chord: String) -> String? {
         let pieces = NetText.split(chord, "+")
         if DotNet.equalsOrdinalIgnoreCase(chord, "Ctrl+Esc")
             || (NetText.contains(pieces, "Win") && !allowedWinChords.contains(chord)) {
@@ -166,54 +228,128 @@ public enum BrainSafety {
         }
 
         if clipboardChords.contains(chord) {
-            return "I type text myself rather than use the clipboard"
+            return clipboardReason
         }
 
         return menuChords.contains(chord) ? "I click menu items by name instead" : nil
     }
 
-    /// Win shortcuts other than window arranging (Win+R, Win+X, the Start menu…), Ctrl+Esc, clipboard and menu keys.
-    public static func isBlockedChord(_ chord: String) -> Bool { refusalReason(chord) != nil }
+    private static let clipboardReason = "I type text myself rather than use the clipboard"
 
-    public static func needsConfirmation(_ chord: String) -> Bool {
-        confirmChords.contains(chord) || altAccessKey.isMatch(chord)
+    /// Windows chords whose Mac chord is neither a `ShortcutKeys` shortcut's nor what the modifier rule gives.
+    private static let macEquivalents = IgnoreCaseMap<String>([
+        ("Alt+F4", "Cmd+W"), ("Ctrl+F4", "Cmd+W"), ("Ctrl+F5", "Shift+Cmd+R"), ("F11", "Ctrl+Cmd+F"),
+        ("Win+Down", "Cmd+M"), ("Win+M", "Alt+Cmd+M"),
+    ])
+
+    private static let macModifierOrder = ["Ctrl", "Alt", "Shift", "Cmd"]
+
+    /// Keys whose Ctrl moves are the Mac's ⌥ moves: by word left and right, by paragraph up and down.
+    private static let wordMoveKeys = ["Left", "Right", "Up", "Down", "Backspace", "Delete"]
+
+    /// The Mac chord for a chord a plan names (as `normalizeChord` writes it), or nil if the Mac has no key for it.
+    static func macChord(_ chord: String) -> String? {
+        guard DotNet.ordinalEquals(normalizeChord(chord) ?? "", chord) else { return nil }
+        if let shortcut = Shortcut.allCases.first(where: {
+            DotNet.equalsOrdinalIgnoreCase(ShortcutKeys.windows.keys(for: $0), chord)
+        }) {
+            return ShortcutKeys.mac.keys(for: shortcut)
+        }
+
+        if DotNet.equalsOrdinalIgnoreCase(ShortcutKeys.windows.deleteWordBefore, chord) {
+            return ShortcutKeys.mac.deleteWordBefore
+        }
+
+        if case .keys(let maximize) = ShortcutKeys.windows.maximize, DotNet.equalsOrdinalIgnoreCase(maximize, chord) {
+            guard case .keys(let zoom) = ShortcutKeys.mac.maximize else { return nil }
+            return zoom
+        }
+
+        if let equivalent = macEquivalents[chord] {
+            return equivalent
+        }
+
+        let pieces = NetText.split(chord, "+")
+        let key = pieces[pieces.count - 1]
+        var modifiers = Array(pieces.dropLast())
+        if NetText.contains(modifiers, "Win") || NetText.contains(modifierOrder, key) {
+            return nil
+        }
+
+        if let ctrl = modifiers.firstIndex(of: "Ctrl") {
+            modifiers[ctrl] = NetText.contains(wordMoveKeys, key) && !NetText.contains(modifiers, "Alt") ? "Alt" : "Cmd"
+        }
+
+        return (macModifierOrder.filter { NetText.contains(modifiers, $0) } + [key]).joined(separator: "+")
     }
 
-    public static func isSubmitChord(_ chord: String) -> Bool {
-        submitChords.contains(chord) || NetText.endsWithOrdinalIgnoreCase(chord, "+Enter")
+    /// Mac chords the brain never presses, and why.
+    private static let macRefusals = IgnoreCaseMap<String>([
+        ("Cmd+Space", "it can run commands"), ("Alt+Cmd+Space", "it can run commands"),
+        ("Ctrl+F3", "it can run commands"), ("Ctrl+F2", "I click menu items by name instead"),
+        ("Ctrl+F8", "I click menu items by name instead"), ("Cmd+Q", "it quits the app"),
+        ("Alt+Cmd+Q", "it quits the app"), ("Shift+Cmd+Q", "it logs you out"), ("Alt+Shift+Cmd+Q", "it logs you out"),
+        ("Ctrl+Cmd+Q", "it locks the screen"), ("Alt+Cmd+Esc", "it force quits apps"),
+        ("Alt+Shift+Cmd+Esc", "it force quits apps"), ("Cmd+Backspace", "it deletes files and documents"),
+        ("Alt+Cmd+Backspace", "it deletes files and documents"), ("Shift+Cmd+Backspace", "it empties the Trash"),
+        ("Alt+Shift+Cmd+Backspace", "it empties the Trash"), ("Cmd+D", "in a Save dialog it throws the changes away"),
+        ("Cmd+F5", "it turns VoiceOver on or off"), ("Alt+Cmd+F5", "it changes the accessibility settings"),
+        ("Cmd+C", clipboardReason), ("Cmd+X", clipboardReason), ("Cmd+V", clipboardReason),
+        ("Shift+Cmd+V", clipboardReason), ("Alt+Cmd+V", clipboardReason), ("Alt+Shift+Cmd+V", clipboardReason),
+        ("Alt+Cmd+C", clipboardReason),
+    ])
+
+    /// Why the brain never presses `macChord` (a Mac chord) on the Mac, or nil.
+    static func macRefusalReason(_ macChord: String) -> String? {
+        if let reason = macRefusals[macChord] {
+            return reason
+        }
+
+        // ⌘↓, with any other modifiers, opens the selected item in Finder and in file dialogs.
+        let opens = DotNet.ordinalEquals(lastPiece(macChord), "Down") && NetText.contains(pieces(macChord), "Cmd")
+        return opens ? "it opens the selected file" : nil
     }
 
-    /// A key that types a character when a text box has the focus ("M", "Shift+7"): typing, as far as the limits go.
-    public static func isCharacterKey(_ chord: String) -> Bool {
-        let length = chord.utf16.count
-        return length == 1 || (length == 7 && NetText.startsWithOrdinalIgnoreCase(chord, "Shift+"))
+    private static let macConfirmChords = IgnoreCaseSet(["Cmd+W", "Alt+Cmd+W", "Shift+Cmd+W", "Shift+Cmd+D"])
+
+    /// Whether `macChord` (a Mac chord) needs a "yes" first on the Mac: closing, Mail's Send, Delete, and Backspace
+    /// unless `focus` is an editable text box.
+    static func macNeedsConfirmation(_ macChord: String, focus: FocusInfo?) -> Bool {
+        let key = lastPiece(macChord)
+        return macConfirmChords.contains(macChord) || DotNet.ordinalEquals(key, "Delete")
+            || (DotNet.ordinalEquals(key, "Backspace") && focus?.editable != true)
     }
+
+    private static func pieces(_ chord: String) -> [String] { NetText.split(chord, "+") }
+
+    private static func lastPiece(_ chord: String) -> String { pieces(chord).last ?? "" }
 
     /// A window where text or keys can run a command: terminals, the Run box, Task Manager, launchers, the Start menu
-    /// and search, File Explorer and the desktop on Windows (by process; the desktop may add windows it recognises).
-    public static func isCommandWindow(_ window: WindowInfo, _ places: BrainPlaces = .windows) -> Bool {
-        places.isCommand(window.processName)
+    /// and search, the file manager (by process; the desktop may add windows it recognises).
+    public static func isCommandWindow(_ window: WindowInfo, _ platform: BrainPlatform) -> Bool {
+        platform.isCommand(window.processName)
     }
 
     /// A file or folder in the file manager or on the desktop: opening it needs a "yes", as known extensions are
     /// hidden.
-    public static func isShellItem(
-        _ window: WindowInfo, _ role: ElementRole, _ places: BrainPlaces = .windows
-    ) -> Bool {
-        role == .listItem && places.isFileManager(window.processName)
+    public static func isShellItem(_ window: WindowInfo, _ role: ElementRole, _ platform: BrainPlatform) -> Bool {
+        role == .listItem && platform.isFileManager(window.processName)
     }
 
     /// Clicking these sends, publishes, installs, runs or agrees to something: a "yes" first (on top of
     /// `TargetResolver.isDestructive`).
-    public static func isSendLike(_ name: String) -> Bool {
+    public static func isSendLike(_ name: String, _ platform: BrainPlatform) -> Bool {
         let n = TranscriptText.normalize(NameMatcher.cleanElementName(name))
-        return sendWords.contains { w in
+        return platform.sendWords.contains { w in
             DotNet.ordinalEquals(n, w) || DotNet.startsWith(n, w + " ") || DotNet.endsWith(n, " " + w)
         }
     }
 
-    /// A file that starts a program or script when opened ("setup.exe", "run.bat"): opening it needs a "yes".
-    public static func runsProgram(_ name: String) -> Bool { programFile.isMatch(name) }
+    /// A file that starts a program or script, or opens a link, when opened ("setup.exe", "run.bat"; "Install.pkg"
+    /// on the Mac): opening it needs a "yes".
+    public static func runsProgram(_ name: String, _ platform: BrainPlatform) -> Bool {
+        platform.programFile.isMatch(name)
+    }
 
     /// A search or filter box: pressing Enter there searches rather than sends.
     public static func isSearchBox(_ name: String?) -> Bool { hasWord(name, searchBoxWords) }
@@ -221,8 +357,8 @@ public enum BrainSafety {
     /// A box inside an app that runs what is typed (a terminal or console): the brain never types there.
     public static func isCommandBox(_ name: String?) -> Bool { hasWord(name, commandBoxWords) }
 
-    public static func isBrowser(_ window: WindowInfo, _ places: BrainPlaces = .windows) -> Bool {
-        places.isBrowser(window.processName)
+    public static func isBrowser(_ window: WindowInfo, _ platform: BrainPlatform) -> Bool {
+        platform.isBrowser(window.processName)
     }
 
     /// Text a browser's search box would open as an address that `normalizeUrl` refuses: another scheme, a path, a

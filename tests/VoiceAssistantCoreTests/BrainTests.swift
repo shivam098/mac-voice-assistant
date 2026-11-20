@@ -100,12 +100,12 @@ final class BrainTests: XCTestCase {
             ("Win", true), ("Win+R", true), ("Win+X", true), ("Ctrl+Win+D", true), ("Ctrl+Esc", true),
             ("Ctrl+V", true), ("Ctrl+C", true), ("Shift+F10", true), ("Alt", true), ("Alt+Space", true),
             ("Win+Up", false), ("Win+D", false), ("Ctrl+W", false), ("Alt+Left", false),
-        ]) { BrainSafety.isBlockedChord($0) }
+        ]) { BrainSafety.isBlockedChord($0, .windows) }
     }
 
     func testClosingAndMenuLetterKeysNeedAYes() {
         check([("Alt+F4", true), ("Alt+H", true), ("Alt+Shift+D", true), ("Alt+Left", false), ("Ctrl+T", false)]) {
-            BrainSafety.needsConfirmation($0)
+            BrainSafety.needsConfirmation($0, .windows, focus: nil)
         }
     }
 
@@ -136,7 +136,7 @@ final class BrainTests: XCTestCase {
         check([
             ("setup.exe", true), ("install.ps1, PowerShell script, 2 KB", true), ("report.docx", false),
             ("Node.js tutorial for beginners", false), ("Download the setup guide", false),
-        ]) { BrainSafety.runsProgram($0) }
+        ]) { BrainSafety.runsProgram($0, .windows) }
     }
 
     func testOnlyWebLinksOpen() {
@@ -191,7 +191,7 @@ final class BrainTests: XCTestCase {
             (("chrome", "Home - YouTube - Google Chrome"), false),
         ]
         check(cases) {
-            BrainSafety.isCommandWindow(WindowInfo(handle: 9, processId: 9, processName: $0.0, title: $0.1))
+            BrainSafety.isCommandWindow(WindowInfo(handle: 9, processId: 9, processName: $0.0, title: $0.1), .windows)
         }
     }
 
@@ -199,7 +199,7 @@ final class BrainTests: XCTestCase {
         check([
             ("Send", true), ("Post comment", true), ("Install", true), ("Repost", true), ("Sent items", false),
             ("Mute (m)", false),
-        ]) { BrainSafety.isSendLike($0) }
+        ]) { BrainSafety.isSendLike($0, .windows) }
     }
 
     func testClearingAndTrashingNeedAYes() {

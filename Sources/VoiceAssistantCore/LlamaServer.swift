@@ -27,7 +27,8 @@ public struct BrainHTTPResponse: Hashable, Sendable {
 }
 
 /// The HTTP the brain's client needs: URLSession in the app, fakes in tests. `send` throws when no answer came (the
-/// server isn't listening yet, the connection broke) and `CancellationError` when its task is cancelled. Timeouts are
+/// server isn't listening yet, the connection broke) and `CancellationError` when its task is cancelled: a URLSession
+/// transport turns `URLError.cancelled` into `CancellationError`, so a stopped request reads as stopped. Timeouts are
 /// the client's (`LlamaServerClient.requestTimeout`).
 public protocol BrainHTTP: Sendable {
     func send(_ request: BrainHTTPRequest) async throws -> BrainHTTPResponse

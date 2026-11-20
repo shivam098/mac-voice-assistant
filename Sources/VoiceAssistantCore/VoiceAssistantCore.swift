@@ -4,7 +4,7 @@ import ThumbFreeCore
 /// tests: the command parser and wake word, the navigation and editing grammars, text editing, the utterance
 /// segmenter, phrase memory, the app catalog, name matching, the desktop the core drives (`JarvisDesktop`), and the AI
 /// brain's prompt, plan reader, safety limits, screen summary and llama-server client. The platform's shortcuts come
-/// from a `ShortcutKeys`, and the windows the brain treats specially from `BrainPlaces`. Dictation itself is
+/// from a `ShortcutKeys`, and what the brain's limits mean there from a `BrainPlatform`. Dictation itself is
 /// ThumbFree's (ThumbFreeCore).
 public enum VoiceAssistantCore {
     public static let version = "0.1.0"

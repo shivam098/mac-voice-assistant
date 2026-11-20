@@ -50,6 +50,26 @@ final class BrainVectorsTests: XCTestCase {
         }
     }
 
+    /// What the Mac opens for every address the brain accepts: `url`, with the host in its IDN form, http or https,
+    /// no user, and the same address when read again.
+    func testTheAcceptedAddressesOpenAsTheyRead() throws {
+        var accepted = 0
+        for cells in vectors("U", 760, 4) {
+            let input = Escaped.decode(cells[0]) ?? ""
+            guard let link = BrainSafety.normalizeUrl(input) else { continue }
+            accepted += 1
+            let url = link.url
+            XCTAssertEqual(link.idnHost, url.host(percentEncoded: true), cells[0])
+            XCTAssertTrue(url.scheme == "http" || url.scheme == "https", cells[0])
+            XCTAssertNil(url.user(percentEncoded: true), cells[0])
+            let again = try XCTUnwrap(URL(string: url.absoluteString), cells[0])
+            XCTAssertEqual(url.absoluteString, again.absoluteString, cells[0])
+            XCTAssertEqual(url, again, cells[0])
+        }
+
+        XCTAssertEqual(449, accepted)
+    }
+
     func testRepliesAreReadIntoTheSamePlans() {
         compare("P", 146, 3) { cells in
             let reply = cells[0] ?? ""
@@ -183,11 +203,11 @@ extension Serialized {
         return JSONValue.parse(NetText.string(utf16: units[start...end])) != nil
     }
 
-    /// The limits on a chord: why it's refused (or ~), blocked, needs a yes, submits, types a character.
+    /// The limits on a chord on Windows: why it's refused (or ~), blocked, needs a yes, submits, types a character.
     static func limits(_ chord: String) -> String {
         [
-            s(BrainSafety.refusalReason(chord)), b(BrainSafety.isBlockedChord(chord)),
-            b(BrainSafety.needsConfirmation(chord)), b(BrainSafety.isSubmitChord(chord)),
+            s(BrainSafety.refusalReason(chord, .windows)), b(BrainSafety.isBlockedChord(chord, .windows)),
+            b(BrainSafety.needsConfirmation(chord, .windows, focus: nil)), b(BrainSafety.isSubmitChord(chord)),
             b(BrainSafety.isCharacterKey(chord)),
         ].joined(separator: "|")
     }
@@ -199,8 +219,8 @@ extension Serialized {
 
     static func named(_ name: String) -> String {
         [
-            b(BrainSafety.isSendLike(name)), b(BrainSafety.runsProgram(name)), b(BrainSafety.isSearchBox(name)),
-            b(BrainSafety.isCommandBox(name)), b(TargetResolver.isDestructive(name)),
+            b(BrainSafety.isSendLike(name, .windows)), b(BrainSafety.runsProgram(name, .windows)),
+            b(BrainSafety.isSearchBox(name)), b(BrainSafety.isCommandBox(name)), b(TargetResolver.isDestructive(name)),
         ].joined(separator: "|")
     }
 
