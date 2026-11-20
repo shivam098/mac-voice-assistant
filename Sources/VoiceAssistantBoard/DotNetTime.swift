@@ -95,17 +95,22 @@ struct DateTimeOffset: Equatable {
     }
 
     /// System.Text.Json's ISO 8601 reader (`JsonHelpers.TryParseAsISO`): "yyyy-MM-dd", then optionally "THH:mm",
-    /// ":ss" and a fraction of up to 16 digits (7 kept), then "Z", "±HH" or "±HH:mm". A time without an offset is
-    /// local, in `zone` (the PC's time zone in C#). Nil where System.Text.Json throws.
+    /// ":ss" and a fraction of up to 16 digits (7 kept), then "Z", "±HH" or "±HH:mm". "T24:00:00", the end of a day,
+    /// is the next midnight. A time without an offset is local, in `zone` (the PC's time zone in C#). Nil where
+    /// System.Text.Json throws.
     init?(iso text: String, localZone zone: TimeZone) {
         guard let parts = Self.parts(Array(text.utf8)), parts.year > 0, (1...12).contains(parts.month),
-              (1...Civil.daysInMonth(parts.year, parts.month)).contains(parts.day), parts.hour <= 23,
-              parts.minute <= 59, parts.second <= 59
+              (1...Civil.daysInMonth(parts.year, parts.month)).contains(parts.day), parts.minute <= 59,
+              parts.second <= 59
         else { return nil }
 
-        let days = Int64(Civil.days(year: parts.year, month: parts.month, day: parts.day) + Civil.daysFrom0001To1970)
-        let seconds = Int64(parts.hour * 3600 + parts.minute * 60 + parts.second)
+        let endOfDay = parts.hour == 24 && parts.minute == 0 && parts.second == 0 && parts.fraction == 0
+        guard parts.hour <= 23 || endOfDay else { return nil }
+        let date = Civil.days(year: parts.year, month: parts.month, day: parts.day) + (endOfDay ? 1 : 0)
+        let days = Int64(date + Civil.daysFrom0001To1970)
+        let seconds = Int64((endOfDay ? 0 : parts.hour) * 3600 + parts.minute * 60 + parts.second)
         let ticks = days * Self.ticksPerDay + seconds * Self.ticksPerSecond + Int64(parts.fraction)
+        guard ticks <= Self.maxTicks else { return nil }
         var offsetMinutes: Int
         if let offset = parts.offset {
             guard offset.hours <= 14, offset.minutes <= 59, offset.hours < 14 || offset.minutes == 0 else { return nil }
@@ -114,8 +119,7 @@ struct DateTimeOffset: Equatable {
                 offsetMinutes = -offsetMinutes
             }
         } else {
-            let wall = (days - Int64(Civil.daysFrom0001To1970)) * 86_400 + seconds
-            offsetMinutes = WallClock.utcOffset(atWall: wall, in: zone) / 60
+            offsetMinutes = WallClock.utcOffset(atWall: Int64(date) * 86_400 + seconds, in: zone) / 60
         }
 
         let utc = ticks - Int64(offsetMinutes) * 60 * Self.ticksPerSecond

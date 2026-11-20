@@ -133,7 +133,7 @@ public enum BoardGrammar {
     }
 
     public static func listFrom(_ spoken: String) -> BoardList? {
-        let s = DotNet.toLowerInvariant(spoken)
+        let s = DotNet.lowerInvariant(spoken)
         if DotNet.contains(s, "brainstorm") {
             return .brainstorm
         } else if DotNet.contains(s, "remind") {
@@ -148,18 +148,19 @@ public enum BoardGrammar {
     }
 
     private static func isWholeBoard(_ list: String) -> Bool {
-        let s = DotNet.toLowerInvariant(DotNet.trim(list))
-        return DotNet.equals(s, "board") || DotNet.equals(s, "idea board") || DotNet.startsWith(s, "idea board")
+        let s = DotNet.lowerInvariant(DotNet.trim(list))
+        return DotNet.ordinalEquals(s, "board") || DotNet.ordinalEquals(s, "idea board")
+            || DotNet.startsWith(s, "idea board")
     }
 
     private static func boardOnlyName(_ list: String) -> Bool {
-        DotNet.containsIgnoringCase(list, "idea") || DotNet.containsIgnoringCase(list, "brain")
-            || DotNet.containsIgnoringCase(list, "remind")
+        DotNet.containsOrdinalIgnoreCase(list, "idea") || DotNet.containsOrdinalIgnoreCase(list, "brain")
+            || DotNet.containsOrdinalIgnoreCase(list, "remind")
     }
 
     // "open notes" / "open tasks" / "open to do" may be an app; "open my notes" or "open ideas" is the board.
     private static func namesTheBoard(_ list: String) -> Bool {
-        boardOnlyName(list) || DotNet.containsIgnoringCase(list, "list")
+        boardOnlyName(list) || DotNet.containsOrdinalIgnoreCase(list, "list")
     }
 
     private static func addIntent(_ list: BoardList, _ text: String, now: Date, timeZone: TimeZone) -> BoardIntent? {
@@ -178,7 +179,7 @@ public enum BoardGrammar {
     private static let stopWords: Set<String> = ["the", "my", "to", "a", "an", "and"]
 
     private static func words(_ text: String) -> Set<String> {
-        Set(word.matches(DotNet.toLowerInvariant(text)).filter { $0.utf16.count > 1 && !stopWords.contains($0) })
+        Set(word.matches(DotNet.lowerInvariant(text)).filter { $0.utf16.count > 1 && !stopWords.contains($0) })
     }
 
     // MARK: Patterns: BoardGrammar.cs's, with \b, . and repeated group names spelled out for ICU (see DotNetRegex)

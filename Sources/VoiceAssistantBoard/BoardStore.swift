@@ -254,7 +254,7 @@ public final class BoardStore: Board, @unchecked Sendable {
         // C# capitalises the first UTF-16 code unit, so a letter beyond U+FFFF (a surrogate pair) stays as it is.
         guard let first = tidied.unicodeScalars.first, first.value <= 0xFFFF else { return tidied }
         var scalars = String.UnicodeScalarView()
-        scalars.append(DotNet.upperInvariant(first))
+        scalars.append(DotNet.toUpperInvariant(first))
         scalars.append(contentsOf: tidied.unicodeScalars.dropFirst())
         return String(scalars)
     }

@@ -23,7 +23,15 @@ final class ReminderTimeEdgeTests: XCTestCase {
         check("call at 11:45", said: moment(2026, 11, 11, 23, 30), due: moment(2026, 11, 11, 23, 45))
         check("call mom tomorrow at 12 am", said: moment(2026, 11, 11, 10, 0), due: moment(2026, 11, 12, 0, 0))
         check("call mom at 12 pm", said: moment(2026, 11, 11, 10, 0), due: moment(2026, 11, 11, 12, 0))
-        // "Tonight" is 8 pm today, even when that has passed.
+    }
+
+    func testATimeSaidForTodayStaysTodayWhenItHasPassed() {
+        // Kept as in C#: with today named ("today", "tonight", "this morning"), a time that has passed isn't moved on.
+        let now = moment(2026, 11, 11, 14, 30)
+        check("call this morning", said: now, due: moment(2026, 11, 11, 9, 0))
+        check("call today at 9", said: now, due: moment(2026, 11, 11, 9, 0))
+        check("call today", said: now, due: moment(2026, 11, 11, 9, 0))
+        check("call today at 2 pm", said: now, due: moment(2026, 11, 11, 14, 0))
         check("take medicine tonight", said: moment(2026, 11, 11, 23, 30), due: moment(2026, 11, 11, 20, 0))
     }
 
@@ -70,9 +78,25 @@ final class ReminderTimeEdgeTests: XCTestCase {
         check("water the plants at 1:30", said: pdt(2026, 11, 1, 0, 30), due: pst(2026, 11, 1, 1, 30), in: zone)
         // A relative time is a length of time.
         check("follow up in 2 days", said: pst(2027, 3, 13, 10), due: pst(2027, 3, 15, 10), in: zone)
-        // A time of day that has passed moves on 24 hours, as C#'s DateTimeOffset.AddDays(1) does: across the spring
-        // change, 6 pm becomes 7 pm.
+        // Kept as in C#: a time of day that has passed moves on 24 hours (DateTimeOffset.AddDays(1)), so on the day the
+        // clocks change it's an hour off. Across the spring change 6 pm becomes 7 pm, and "at 6" 7 am; across the
+        // autumn one, "at 6" is 5 am.
         check("gym in the evening", said: pst(2027, 3, 13, 19), due: pst(2027, 3, 14, 18), in: zone)
+        check("pay rent at 6", said: pst(2027, 3, 13, 19), due: pst(2027, 3, 14, 6), in: zone)
+        check("pay rent at 6", said: pdt(2026, 10, 31, 19), due: pdt(2026, 11, 1, 6), in: zone)
+    }
+
+    func testAmountsPastWhatCSharpCanHold() {
+        // Deviation: C# throws an ArgumentOutOfRangeException on these (past year 9999, or past TimeSpan's range).
+        // Here they're far-future times, which board.json holds as its last moment.
+        let now = moment(2026, 11, 11, 14, 30)
+        check("stretch in 3000000 days", said: now, due: now.addingTimeInterval(3_000_000 * 86_400))
+        check("stretch in 99999999 days", said: now, due: now.addingTimeInterval(99_999_999 * 86_400))
+        check("stretch in 2147483647 hours", said: now, due: now.addingTimeInterval(2_147_483_647 * 3600))
+        let due = ReminderTime.parse("stretch in 3000000 days", now: now, timeZone: india).due
+        XCTAssertEqual(due.map { DateTimeOffset($0, in: india).iso }, "9999-12-31T23:59:59.9999999+00:00")
+        // Within .NET's years, the same as C#.
+        check("stretch in 2147483647 minutes", said: now, due: moment(6109, 12, 4, 16, 37))
     }
 
     func testOtherPhrasings() {

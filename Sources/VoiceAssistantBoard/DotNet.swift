@@ -1,34 +1,54 @@
 import Foundation
 
 /// Text rules as .NET applies them, for code ported from windows-voice-assistant `src/VoiceAssistant.Board`. They work
-/// on Unicode scalars and UTF-16 code units, as .NET's `char` does, rather than on Swift's `Character` (grapheme
-/// clusters, full case mapping, canonically equivalent strings comparing equal).
+/// on Unicode scalars, the closest Swift unit to .NET's UTF-16 `char` here, rather than on Swift's `Character`
+/// (grapheme clusters, full case mapping, canonically equivalent strings comparing equal).
+///
+/// thumbfree-mac has the same rules for its C# core, in `Sources/ThumbFreeCore/DotNet.swift`. The board depends on
+/// nothing, so it keeps its own copy: the two must stay in step, with the same casing and ignore-case rules and names.
 enum DotNet {
-    /// `char.IsWhiteSpace`: Unicode's White_Space property.
+    // MARK: Characters
+
+    /// `char.IsWhiteSpace`: Unicode's White_Space property is the same set (Zs, Zl, Zp, U+0009–U+000D, U+0085).
     static func isWhiteSpace(_ scalar: Unicode.Scalar) -> Bool { scalar.properties.isWhitespace }
 
-    /// `char.ToUpperInvariant`: the one-to-one mapping, so "ß" stays "ß" instead of becoming "SS".
-    static func upperInvariant(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
-        let mapped = scalar.properties.uppercaseMapping.unicodeScalars
-        return mapped.count == 1 ? mapped.first! : scalar
+    /// `char.ToUpperInvariant`: the simple (one-to-one) uppercase mapping, so "ß" stays "ß" instead of becoming "SS".
+    /// Where the full mapping adds a letter ("ᾀ" → "ἈΙ"), the simple one is the one-letter title case ("ᾈ"). As in
+    /// .NET, the Turkish dotless "ı" keeps its case.
+    static func toUpperInvariant(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        if scalar == "\u{131}" {
+            return scalar
+        }
+
+        let upper = scalar.properties.uppercaseMapping.unicodeScalars
+        if upper.count == 1 {
+            return upper.first!
+        }
+
+        let title = scalar.properties.titlecaseMapping.unicodeScalars
+        return title.count == 1 ? title.first! : scalar
     }
 
-    /// `char.ToLowerInvariant`: the one-to-one mapping.
-    static func lowerInvariant(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
-        let mapped = scalar.properties.lowercaseMapping.unicodeScalars
-        return mapped.count == 1 ? mapped.first! : scalar
+    /// `char.ToLowerInvariant`: the simple lowercase mapping ("İ", whose full mapping is two scalars, keeps its case).
+    static func toLowerInvariant(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        let lower = scalar.properties.lowercaseMapping.unicodeScalars
+        return lower.count == 1 ? lower.first! : scalar
     }
+
+    /// The case `StringComparison.OrdinalIgnoreCase` compares: the simple uppercase, except that "ſ" isn't "S".
+    private static func ordinalUpper(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        scalar == "\u{17F}" ? scalar : toUpperInvariant(scalar)
+    }
+
+    // MARK: Case
 
     /// `string.ToUpperInvariant()`.
-    static func toUpperInvariant(_ text: String) -> String { mapScalars(text, upperInvariant) }
+    static func upperInvariant(_ text: String) -> String { string(text.unicodeScalars.map { toUpperInvariant($0) }) }
 
     /// `string.ToLowerInvariant()`.
-    static func toLowerInvariant(_ text: String) -> String { mapScalars(text, lowerInvariant) }
+    static func lowerInvariant(_ text: String) -> String { string(text.unicodeScalars.map { toLowerInvariant($0) }) }
 
-    /// `string.Replace(char, char)`.
-    static func replace(_ text: String, _ old: Unicode.Scalar, with new: Unicode.Scalar) -> String {
-        mapScalars(text) { $0 == old ? new : $0 }
-    }
+    // MARK: Trimming and replacing
 
     /// `string.Trim()`.
     static func trim(_ text: String) -> String { trim(text, while: isWhiteSpace) }
@@ -45,39 +65,9 @@ enum DotNet {
         return String(String.UnicodeScalarView(scalars[...last]))
     }
 
-    /// `a.Contains(b, StringComparison.Ordinal)`: code unit by code unit.
-    static func contains(_ text: String, _ part: String) -> Bool {
-        let units = Array(text.utf16)
-        let wanted = Array(part.utf16)
-        guard !wanted.isEmpty else { return true }
-        guard wanted.count <= units.count else { return false }
-        let last = units.count - wanted.count
-        for start in 0...last where units[start..<(start + wanted.count)].elementsEqual(wanted) {
-            return true
-        }
-
-        return false
-    }
-
-    /// `a.Contains(b, StringComparison.OrdinalIgnoreCase)`.
-    static func containsIgnoringCase(_ text: String, _ part: String) -> Bool {
-        contains(toUpperInvariant(text), toUpperInvariant(part))
-    }
-
-    /// `a.StartsWith(b, StringComparison.Ordinal)`.
-    static func startsWith(_ text: String, _ prefix: String) -> Bool { text.utf16.starts(with: prefix.utf16) }
-
-    /// `a.StartsWith(b, StringComparison.OrdinalIgnoreCase)`.
-    static func startsWithIgnoringCase(_ text: String, _ prefix: String) -> Bool {
-        startsWith(toUpperInvariant(text), toUpperInvariant(prefix))
-    }
-
-    /// `string.Equals(a, b, StringComparison.Ordinal)`.
-    static func equals(_ a: String, _ b: String) -> Bool { a.utf16.elementsEqual(b.utf16) }
-
-    /// `string.Equals(a, b, StringComparison.OrdinalIgnoreCase)`.
-    static func equalsIgnoringCase(_ a: String, _ b: String) -> Bool {
-        equals(toUpperInvariant(a), toUpperInvariant(b))
+    /// `string.Replace(char, char)`.
+    static func replace(_ text: String, _ old: Unicode.Scalar, with new: Unicode.Scalar) -> String {
+        string(text.unicodeScalars.map { $0 == old ? new : $0 })
     }
 
     private static func trim(_ text: String, while drop: (Unicode.Scalar) -> Bool) -> String {
@@ -87,20 +77,70 @@ enum DotNet {
         return String(String.UnicodeScalarView(scalars[first...last]))
     }
 
-    private static func mapScalars(_ text: String, _ transform: (Unicode.Scalar) -> Unicode.Scalar) -> String {
-        var scalars = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars {
-            scalars.append(transform(scalar))
+    // MARK: Ordinal comparison
+
+    /// `a == b` in C#: the same scalars.
+    static func ordinalEquals(_ a: String, _ b: String) -> Bool { a.unicodeScalars.elementsEqual(b.unicodeScalars) }
+
+    /// `text.StartsWith(prefix, StringComparison.Ordinal)`.
+    static func startsWith(_ text: String, _ prefix: String) -> Bool {
+        text.unicodeScalars.starts(with: prefix.unicodeScalars)
+    }
+
+    /// `text.Contains(value, StringComparison.Ordinal)`.
+    static func contains(_ text: String, _ value: String) -> Bool { contains(ordinal(text), ordinal(value)) }
+
+    /// `string.Equals(a, b, StringComparison.OrdinalIgnoreCase)`: scalar by scalar after the simple uppercase mapping.
+    static func equalsOrdinalIgnoreCase(_ a: String, _ b: String) -> Bool {
+        ordinalIgnoreCase(a) == ordinalIgnoreCase(b)
+    }
+
+    /// `text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)`.
+    static func startsWithOrdinalIgnoreCase(_ text: String, _ prefix: String) -> Bool {
+        ordinalIgnoreCase(text).starts(with: ordinalIgnoreCase(prefix))
+    }
+
+    /// `text.Contains(value, StringComparison.OrdinalIgnoreCase)`.
+    static func containsOrdinalIgnoreCase(_ text: String, _ value: String) -> Bool {
+        contains(ordinalIgnoreCase(text), ordinalIgnoreCase(value))
+    }
+
+    /// A key for a `Set` or `Dictionary` that compares as `StringComparer.Ordinal` does.
+    static func ordinal(_ text: String) -> [Unicode.Scalar] { Array(text.unicodeScalars) }
+
+    /// A key for a `Set` or `Dictionary` that compares as `StringComparer.OrdinalIgnoreCase` does.
+    static func ordinalIgnoreCase(_ text: String) -> [Unicode.Scalar] { text.unicodeScalars.map { ordinalUpper($0) } }
+
+    /// Whether `target` occurs in `source`.
+    private static func contains(_ source: [Unicode.Scalar], _ target: [Unicode.Scalar]) -> Bool {
+        if target.isEmpty {
+            return true
         }
 
-        return String(scalars)
+        guard source.count >= target.count else { return false }
+        return (0...(source.count - target.count)).contains { source[$0..<($0 + target.count)].elementsEqual(target) }
+    }
+
+    /// A string of `scalars`.
+    static func string<S: Sequence>(_ scalars: S) -> String where S.Element == Unicode.Scalar {
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: scalars)
+        return String(view)
     }
 }
 
 /// A regular expression from the C# code, on NSRegularExpression (ICU). Where ICU means something else, the patterns
 /// spell out .NET's meaning: `\b` is `wordStart` or `wordEnd` (ICU's word characters include all marks and letter
 /// numbers), `.` is `[^\n]` (ICU's `.` also stops at \r and the other line ends), and no group name is used twice
-/// (ICU refuses that; .NET shares one group between the alternatives).
+/// (ICU refuses that; .NET shares one group between the alternatives). `\s` and `\d` are the same in both.
+///
+/// Two differences remain, which dictated text rarely meets:
+/// - Ignoring case, ICU folds case fully and the same in every language, while the C# patterns (IgnoreCase without
+///   CultureInvariant) use .NET's case table and the current culture. "İ" matches `i` in .NET (in en-US) but not
+///   here; "ſ" matches `s`, "meßage" `message` and "ﬁve" `five` here but not in .NET. So "in ﬁve minutes" is a
+///   reminder in a minute here (an amount that isn't a number counts as 1), where C# finds no time.
+/// - A letter outside the Basic Multilingual Plane ("𝐀") is a letter here, for `wordStart`, `wordEnd` and the word
+///   pattern `[\p{L}\p{N}]`. .NET sees its two UTF-16 surrogates, which aren't letters.
 struct DotNetRegex: @unchecked Sendable {
     /// .NET's `\b` before a word: the character before isn't a letter, non-spacing mark, decimal digit, connector or
     /// zero-width (non-)joiner, the characters .NET's `\b` counts.

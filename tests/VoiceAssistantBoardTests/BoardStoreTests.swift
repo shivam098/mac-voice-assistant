@@ -1,7 +1,8 @@
 import XCTest
 @testable import VoiceAssistantBoard
 
-/// The store's behaviour that BoardTests.cs doesn't show: its lock and a failed save, as BoardStore.cs has them.
+/// The store's behaviour that BoardTests.cs doesn't show: its lock, a failed save and the capital letter, as
+/// BoardStore.cs has them.
 final class BoardStoreTests: XCTestCase {
     func testWhatRunsUnderTheLockMayReadTheBoard() throws {
         // C#'s lock is re-entrant, so the clock, which runs under it, may read the board.
@@ -34,5 +35,22 @@ final class BoardStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.add(.ideas, "x"))
         XCTAssertEqual(store.items.map(\.text), ["X"])
         XCTAssertEqual(changes, 0)
+    }
+
+    func testTidyCapitalisesAsCSharpDoes() {
+        // char.ToUpperInvariant on the first letter: "ı" keeps its case, a Greek letter with ypogegrammeni becomes its
+        // title case ("ᾳ" → "ᾼ"), and "ß" and "ﬁ", which have no one-letter capital, stay.
+        func scalars(_ text: String) -> [UInt32] { text.unicodeScalars.map(\.value) }
+        let cases = [
+            ("\u{131}dea", "\u{131}dea"),
+            ("\u{1FB3} note", "\u{1FBC} note"),
+            ("\u{1F80} note", "\u{1F88} note"),
+            ("\u{DF}ig", "\u{DF}ig"),
+            ("\u{FB01}x it", "\u{FB01}x it"),
+            ("\u{1C6}ungla", "\u{1C4}ungla"),
+        ]
+        for (text, tidied) in cases {
+            XCTAssertEqual(scalars(BoardStore.tidy(text)), scalars(tidied), text)
+        }
     }
 }

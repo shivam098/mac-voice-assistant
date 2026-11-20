@@ -13,20 +13,20 @@ public enum ReminderTime {
     public static func parse(
         _ text: String, now: Date, timeZone zone: TimeZone = .autoupdatingCurrent
     ) -> (task: String, due: Date?) {
-        var work = amPmDots.replace(text) { DotNet.toLowerInvariant($0[1] ?? "") + "m" }
+        var work = amPmDots.replace(text) { DotNet.lowerInvariant($0[1] ?? "") + "m" }
 
         // "in 10 minutes", "after two hours", "in half an hour"
         var offset: TimeInterval?
         work = take(work, halfHour) { _ in offset = 30 * 60 }
         work = take(work, relative) { m in
             var amount = spaces.replace(DotNet.trim(m["n"] ?? "")) { _ in " " }
-            if DotNet.startsWithIgnoringCase(amount, "a ") {
+            if DotNet.startsWithOrdinalIgnoreCase(amount, "a ") {
                 amount = String(String.UnicodeScalarView(amount.unicodeScalars.dropFirst(2))) // "a couple of", "a few"
             }
 
             // int.TryParse: ASCII digits that fit an Int32; anything else is a word, or 1.
-            let n = Int32(amount).map { Int($0) } ?? numbers[DotNet.toUpperInvariant(amount)] ?? 1
-            let unit = DotNet.toLowerInvariant(m["u"] ?? "")
+            let n = Int32(amount).map { Int($0) } ?? numbers[DotNet.ordinalIgnoreCase(amount)] ?? 1
+            let unit = DotNet.lowerInvariant(m["u"] ?? "")
             if DotNet.startsWith(unit, "min") {
                 offset = TimeInterval(n * 60)
             } else if DotNet.startsWith(unit, "h") {
@@ -48,10 +48,10 @@ public enum ReminderTime {
         var partOfDay: String?
         work = take(work, day) { m in
             if let part = m["part"] {
-                partOfDay = DotNet.toLowerInvariant(part)
+                partOfDay = DotNet.lowerInvariant(part)
             }
 
-            switch DotNet.toLowerInvariant(m["day"] ?? "") {
+            switch DotNet.lowerInvariant(m["day"] ?? "") {
             case "day after tomorrow":
                 dayOffset = 2
             case "tomorrow":
@@ -74,19 +74,19 @@ public enum ReminderTime {
         }
 
         work = take(work, weekday) { m in
-            // DayOfWeek: Sunday is 0; 1970-01-01, day 0, was a Thursday.
-            let target = weekdays.firstIndex(of: DotNet.toUpperInvariant(m["wd"] ?? "")) ?? 0
+            // Enum.Parse<DayOfWeek>(name, ignoreCase: true): Sunday is 0; 1970-01-01, day 0, was a Thursday.
+            let target = weekdays.firstIndex(of: DotNet.ordinalIgnoreCase(m["wd"] ?? "")) ?? 0
             let ahead = (target - Int(((today % 7) + 7 + 4) % 7) + 7) % 7
             dayOffset = ahead == 0 ? 7 : ahead
         }
 
-        work = take(work, partOfDayWords) { m in partOfDay = DotNet.toLowerInvariant(m["part"] ?? "") }
+        work = take(work, partOfDayWords) { m in partOfDay = DotNet.lowerInvariant(m["part"] ?? "") }
 
         var hour: Int?
         var minute = 0
         var ampm: String?
         work = take(work, noon) { m in
-            let isNoon = DotNet.equalsIgnoringCase(m["w"] ?? "", "noon")
+            let isNoon = DotNet.equalsOrdinalIgnoreCase(m["w"] ?? "", "noon")
             hour = isNoon ? 12 : 0
             ampm = isNoon ? "pm" : "am"
         }
@@ -95,7 +95,7 @@ public enum ReminderTime {
             work = take(work, clock) { m in
                 hour = Int(m["h1"] ?? m["h2"] ?? m["h3"] ?? "")
                 minute = Int(m["m1"] ?? m["m2"] ?? m["m3"] ?? "") ?? 0
-                ampm = (m["ap1"] ?? m["ap2"]).map { DotNet.toLowerInvariant($0) }
+                ampm = (m["ap1"] ?? m["ap2"]).map { DotNet.lowerInvariant($0) }
             }
         }
 
@@ -170,14 +170,15 @@ public enum ReminderTime {
         return t
     }
 
-    /// C#'s `Numbers`, compared ignoring case (OrdinalIgnoreCase compares upper-cased text).
-    private static let numbers: [String: Int] = Dictionary(uniqueKeysWithValues: [
+    /// C#'s `Numbers`, a dictionary with `StringComparer.OrdinalIgnoreCase`.
+    private static let numbers: [[Unicode.Scalar]: Int] = Dictionary(uniqueKeysWithValues: [
         ("a", 1), ("an", 1), ("one", 1), ("two", 2), ("three", 3), ("four", 4), ("five", 5), ("six", 6),
         ("seven", 7), ("eight", 8), ("nine", 9), ("ten", 10), ("eleven", 11), ("twelve", 12), ("fifteen", 15),
         ("twenty", 20), ("thirty", 30), ("forty five", 45), ("forty-five", 45), ("couple of", 2), ("few", 3),
-    ].map { (DotNet.toUpperInvariant($0.0), $0.1) })
+    ].map { (DotNet.ordinalIgnoreCase($0.0), $0.1) })
 
-    private static let weekdays = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+    private static let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        .map { DotNet.ordinalIgnoreCase($0) }
 
     // MARK: Patterns: ReminderTime.cs's, with \b spelled out for ICU (see DotNetRegex)
 

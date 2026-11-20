@@ -95,15 +95,20 @@ final class BoardFileTests: XCTestCase {
     }
 
     func testWhatCountsAsUnreadable() throws {
-        // These make System.Text.Json throw, so C# copies the file aside and starts an empty board.
+        // These make System.Text.Json throw, so C# copies the file aside and starts an empty board. Ignoring case,
+        // "ı" and "ſ" aren't "I" and "s", so "ıdeas" and "brainſtorm" aren't lists.
         let unreadable = [
             "", "   ", "[]", "{ not json", "{\"items\":[{}],}", "// c\n{\"items\":[]}", "{\"items\":[{}]} x",
             "{\"items\":[{\"text\":\"a\"}]}{}", "{\"version\":\"1\",\"items\":[]}", "{\"version\":1.5,\"items\":[]}",
             "{\"items\":{}}", "{\"items\":[[]]}", "{\"items\":[{\"done\":null}]}", "{\"items\":[{\"done\":1}]}",
             "{\"items\":[{\"notified\":\"true\"}]}", "{\"items\":[{\"order\":\"1\"}]}", "{\"items\":[{\"id\":5}]}",
             "{\"items\":[{\"text\":5}]}", "{\"items\":[{\"created\":null}]}", "{\"items\":[{\"due\":5}]}",
-            "{\"items\":[{\"list\":\"Nope\"}]}", "{\"items\":[{\"list\":null}]}",
+            "{\"items\":[{\"list\":\"Nope\"}]}", "{\"items\":[{\"list\":null}]}", "{\"items\":[{\"list\":\"\"}]}",
+            "{\"items\":[{\"list\":\" \"}]}", "{\"items\":[{\"list\":\"\u{131}deas\"}]}",
+            "{\"items\":[{\"list\":\"brain\u{17F}torm\"}]}",
             "{\"items\":[{\"created\":\"2026-11-11 14:30:00+05:30\"}]}",
+            // Deviation: C# ORs names joined by commas, as for a flags enum ("Ideas, Todo" is Todo).
+            "{\"items\":[{\"list\":\"Ideas, Todo\"}]}",
         ]
         for content in unreadable {
             let path = temporaryBoardPath()
@@ -114,12 +119,16 @@ final class BoardFileTests: XCTestCase {
             XCTAssertEqual(try fileText(path), content, "The file itself stays until the next change")
         }
 
-        // These are read. Unlike C#, a null in the list is no note (C# keeps a null one, which then fails), and a list
-        // number other than 0 to 3 is unreadable (C# keeps a note in no list, never shown).
+        // These are read: a list's name in any case or its number, with white space around it. Unlike C#, a null in
+        // the list is no note (C# keeps a null one, which then fails), and a list number other than 0 to 3 is
+        // unreadable (C# keeps a note in no list, never shown).
         let readable: [(String, [BoardList])] = [
             ("null", []), ("{}", []), ("{\"items\":null}", []), ("{\"version\":2,\"items\":[]}", []),
             ("\u{FEFF}{\"items\":[{}]}", [.ideas]), ("{\"items\":[null]}", []),
             ("{\"items\":[{\"list\":\"brainSTORM\"},{\"list\":\"3\"},{\"list\":2}]}", [.brainstorm, .reminders, .todo]),
+            (#"{"items":[{"list":" Todo "},{"list":" 3"},{"list":"+3"},{"list":"\tReminders\n"}]}"#,
+             [.todo, .reminders, .reminders, .reminders]),
+            (#"{"items":[{"list":"\u00A0todo"},{"list":"TODO "}]}"#, [.todo, .todo]),
         ]
         for (content, lists) in readable {
             let path = temporaryBoardPath()
@@ -166,6 +175,21 @@ final class BoardFileTests: XCTestCase {
             ("2028-02-29T00:00:00Z", "2028-02-29T00:00:00+00:00"),
             ("0001-01-01T00:00:00+00:00", "0001-01-01T00:00:00+00:00"),
             ("9999-12-31T23:59:59.9999999+00:00", "9999-12-31T23:59:59.9999999+00:00"),
+            // 24:00, the end of a day, is the next midnight.
+            ("2026-11-11T24:00:00Z", "2026-11-12T00:00:00+00:00"),
+            ("2026-11-11T24:00:00+05:30", "2026-11-12T00:00:00+05:30"),
+            ("2026-11-11T24:00", "2026-11-12T00:00:00+05:30"),
+            ("2026-11-11T24:00Z", "2026-11-12T00:00:00+00:00"),
+            ("2026-11-11T24:00:00.0Z", "2026-11-12T00:00:00+00:00"),
+            ("2026-12-31T24:00:00Z", "2027-01-01T00:00:00+00:00"),
+            ("2028-02-28T24:00:00Z", "2028-02-29T00:00:00+00:00"),
+            ("9999-12-30T24:00:00-01:00", "9999-12-31T00:00:00-01:00"),
+            ("2026-11-11T24:00:01Z", nil),
+            ("2026-11-11T24:01:00Z", nil),
+            ("2026-11-11T24:00:00.1Z", nil),
+            ("2026-11-11T25:00:00Z", nil),
+            ("9999-12-31T24:00:00Z", nil),
+            ("9999-12-31T24:00:00+01:00", nil),
             ("2026-11-11T14:30:00+0530", nil),
             ("2026-11-11T14:30:00+05:3", nil),
             ("2026-11-11T14:30:00+05:60", nil),
@@ -191,6 +215,37 @@ final class BoardFileTests: XCTestCase {
         let read = DateTimeOffset(iso: "2026-11-11T14:30:00+05:30", localZone: india)
         XCTAssertEqual(read?.date, moment(2026, 11, 11, 14, 30))
         XCTAssertEqual(DateTimeOffset(iso: "0001-01-01T00:00:00+00:00", localZone: india)?.date, BoardItem.zeroTime)
+    }
+
+    func testATimeWithoutAnOffsetIsReadInTheStoresTimeZone() throws {
+        // As System.Text.Json reads it on a PC in Los Angeles: with the offset in force then, and standard time for a
+        // time the clocks skip (2:30 on 14 March 2027) or repeat (1:30 on 1 November 2026).
+        let losAngeles = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let cases: [(String, String)] = [
+            ("2026-07-01T09:00:00", "2026-07-01T09:00:00-07:00"),
+            ("2026-12-01T09:00:00", "2026-12-01T09:00:00-08:00"),
+            ("2027-03-14T02:30:00", "2027-03-14T02:30:00-08:00"),
+            ("2027-03-14T03:00:00", "2027-03-14T03:00:00-07:00"),
+            ("2026-11-01T00:59:00", "2026-11-01T00:59:00-07:00"),
+            ("2026-11-01T01:30:00", "2026-11-01T01:30:00-08:00"),
+            ("2026-11-01T02:00:00", "2026-11-01T02:00:00-08:00"),
+        ]
+        for (text, rewritten) in cases {
+            XCTAssertEqual(DateTimeOffset(iso: text, localZone: losAngeles)?.iso, rewritten, text)
+        }
+
+        // A board file with such times, read and saved there.
+        let path = temporaryBoardPath()
+        defer { removeBoardFiles(path) }
+        try writeFile(#"{"items":[{"id":"a","created":"2026-07-01T09:00:00","due":"2026-12-01T09:00:00"}]}"#, to: path)
+        let store = try BoardStore(path: path, timeZone: losAngeles)
+        let note = try XCTUnwrap(store.items.first)
+        XCTAssertEqual(note.created, moment(2026, 7, 1, 9, 0, in: offset(hours: -7)))
+        XCTAssertEqual(note.due, moment(2026, 12, 1, 9, 0, in: offset(hours: -8)))
+        try store.update(note)
+        let text = try fileText(path)
+        XCTAssertTrue(text.contains(#""created": "2026-07-01T09:00:00-07:00","#), text)
+        XCTAssertTrue(text.contains(#""due": "2026-12-01T09:00:00-08:00","#), text)
     }
 
     func testTimesAreWrittenWithTheOffsetOfTheirZone() throws {

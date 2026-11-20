@@ -133,10 +133,13 @@ enum BoardFile {
             }
         }
 
-        /// JsonStringEnumConverter's reading: a list's name in any case, or its number (0 to 3), bare or in a string.
+        /// A list as JsonStringEnumConverter reads it: a list's name in any case, or its number (0 to 3), bare or in a
+        /// string, with white space around it. Unlike C#, names joined by commas are unreadable: C# ORs them, as for
+        /// flags ("Ideas, Todo" is Todo), but BoardList isn't a flags enum and no app writes that.
         private static func readList(_ container: KeyedDecodingContainer<Key>) throws -> BoardList {
-            if let name = try? container.decode(String.self, forKey: .list) {
-                if let list = BoardList.allCases.first(where: { DotNet.equalsIgnoringCase($0.rawValue, name) }) {
+            if let text = try? container.decode(String.self, forKey: .list) {
+                let name = DotNet.trim(text)
+                if let list = BoardList.allCases.first(where: { DotNet.equalsOrdinalIgnoreCase($0.rawValue, name) }) {
                     return list
                 }
 
