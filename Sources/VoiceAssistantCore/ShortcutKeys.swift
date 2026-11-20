@@ -36,9 +36,9 @@ public enum Shortcut: CaseIterable, Sendable {
 ///   `Chord` reads "Delete" as ⌫ and has no letters, digits or brackets, so the Mac desktop can't use it unchanged.
 ///
 /// Back and forward differ on the Mac: ⌘[ and ⌘] also change the indentation or list level in many apps (Notes, Mail,
-/// Pages, Xcode, VS Code), while on Windows Alt+← and Alt+→ do nothing in an editor. So with `mac` the interaction
-/// controller presses them only when the front app is a browser or Finder, or its app profile has its own back and
-/// forward keys, and otherwise says so ("Back works in browsers and Finder").
+/// Pages, Xcode, VS Code), while on Windows Alt+← and Alt+→ do nothing in an editor. So with `mac`
+/// (`backForwardInBrowsersOnly`) the interaction controller presses them only when the front app is a browser or the
+/// file manager (Finder), and otherwise says so ("Back works in browsers and Finder").
 public struct ShortcutKeys: Equatable, Sendable {
     /// How the front window is maximized.
     public enum Maximize: Equatable, Sendable {
@@ -72,6 +72,10 @@ public struct ShortcutKeys: Equatable, Sendable {
 
     public var maximize: Maximize
 
+    /// `back` and `forward` act in other apps too, so the controller presses them only in a browser or the file
+    /// manager.
+    public var backForwardInBrowsersOnly: Bool
+
     public init(
         selectAll: String,
         copy: String,
@@ -91,7 +95,8 @@ public struct ShortcutKeys: Equatable, Sendable {
         scrollDown: String,
         scrollUp: String,
         deleteWordBefore: String,
-        maximize: Maximize
+        maximize: Maximize,
+        backForwardInBrowsersOnly: Bool = false
     ) {
         self.selectAll = selectAll
         self.copy = copy
@@ -112,6 +117,7 @@ public struct ShortcutKeys: Equatable, Sendable {
         self.scrollUp = scrollUp
         self.deleteWordBefore = deleteWordBefore
         self.maximize = maximize
+        self.backForwardInBrowsersOnly = backForwardInBrowsersOnly
     }
 
     /// The keys for `shortcut`.
@@ -151,5 +157,6 @@ public struct ShortcutKeys: Equatable, Sendable {
         selectAll: "Cmd+A", copy: "Cmd+C", paste: "Cmd+V", cut: "Cmd+X", undo: "Cmd+Z", redo: "Shift+Cmd+Z",
         save: "Cmd+S", newTab: "Cmd+T", closeTab: "Cmd+W", nextTab: "Ctrl+Tab", previousTab: "Ctrl+Shift+Tab",
         back: "Cmd+[", forward: "Cmd+]", parentFolder: "Cmd+Up", refresh: "Cmd+R", scrollDown: "PageDown",
-        scrollUp: "PageUp", deleteWordBefore: "Alt+Backspace", maximize: .zoomThroughAccessibility)
+        scrollUp: "PageUp", deleteWordBefore: "Alt+Backspace", maximize: .zoomThroughAccessibility,
+        backForwardInBrowsersOnly: true)
 }

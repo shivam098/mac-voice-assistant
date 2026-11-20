@@ -100,6 +100,86 @@ enum NetText {
     /// `char.IsControl`: the Cc category (U+0000–U+001F and U+007F–U+009F).
     static func isControl(_ scalar: Unicode.Scalar) -> Bool { scalar.properties.generalCategory == .control }
 
+    /// `CultureInfo.InvariantCulture.TextInfo.ToTitleCase`: each word's first letter in upper case and the rest in
+    /// lower case, except a word written all in capitals (an acronym), which stays. A word starts at a letter and runs
+    /// to a separator (white space, a control or format character, punctuation, a symbol); after an apostrophe in it
+    /// the rest is lower-cased.
+    static func toTitleCase(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        func appendRest(_ start: Int, _ end: Int, lower: Bool) {
+            for scalar in scalars[start..<end] {
+                out.append(lower ? DotNet.toLowerInvariant(scalar) : scalar)
+            }
+        }
+
+        var i = 0
+        while i < scalars.count {
+            let first = scalars[i]
+            guard isLetterCategory(first) else {
+                out.append(first)
+                i += 1
+                continue
+            }
+
+            out.append(titlecase(first))
+            i += 1
+            var start = i
+            var hasLowerCase = first.properties.generalCategory == .lowercaseLetter
+            while i < scalars.count {
+                let scalar = scalars[i]
+                if isLetterCategory(scalar) {
+                    hasLowerCase = hasLowerCase || scalar.properties.generalCategory == .lowercaseLetter
+                    i += 1
+                } else if scalar == "'" {
+                    i += 1
+                    appendRest(start, i, lower: hasLowerCase)
+                    start = i
+                    hasLowerCase = true
+                } else if !isWordSeparator(scalar) {
+                    i += 1
+                } else {
+                    break
+                }
+            }
+
+            appendRest(start, i, lower: hasLowerCase)
+        }
+
+        return String(out)
+    }
+
+    private static func isLetterCategory(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: return true
+        default: return false
+        }
+    }
+
+    /// The categories that end a word in `ToTitleCase` (letters, marks, numbers, private use and unassigned don't).
+    private static func isWordSeparator(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .spaceSeparator, .lineSeparator, .paragraphSeparator, .control, .format, .connectorPunctuation,
+             .dashPunctuation, .openPunctuation, .closePunctuation, .initialPunctuation, .finalPunctuation,
+             .otherPunctuation, .mathSymbol, .currencySymbol, .modifierSymbol, .otherSymbol:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// `ToTitleCase`'s first letter: the digraphs DŽ, LJ, NJ and DZ as their title-case forms (Dž, Lj, Nj, Dz), others
+    /// in upper case.
+    private static func titlecase(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        switch scalar.value {
+        case 0x1C4...0x1C6: return "\u{1C5}"
+        case 0x1C7...0x1C9: return "\u{1C8}"
+        case 0x1CA...0x1CC: return "\u{1CB}"
+        case 0x1F1...0x1F3: return "\u{1F2}"
+        default: return DotNet.toUpperInvariant(scalar)
+        }
+    }
+
     /// `strings.Distinct()`: the first of each, in order, compared ordinally.
     static func distinct(_ strings: [String]) -> [String] {
         var seen = Set<[Unicode.Scalar]>()

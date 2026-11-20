@@ -198,8 +198,9 @@ public protocol JarvisDesktop: AnyObject {
     /// Restores the window if minimized, brings it to the front and verifies it is there.
     func activateWindow(_ window: WindowInfo) async throws -> DesktopResult
 
-    /// Opens an http(s) page in the default browser; the result's window is the browser when it came to the front.
-    func openURL(_ url: URL) async throws -> DesktopResult
+    /// Opens an http(s) page (`WebLink.url`) in a new tab of the browser in front, else the default browser; the
+    /// result's window is the browser when it came to the front.
+    func openURL(_ link: WebLink) async throws -> DesktopResult
 
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
@@ -246,7 +247,9 @@ extension JarvisDesktop {
         .fail("Switching windows isn't supported here.")
     }
 
-    public func openURL(_ url: URL) async throws -> DesktopResult { .fail("Opening web pages isn't supported here.") }
+    public func openURL(_ link: WebLink) async throws -> DesktopResult {
+        .fail("Opening web pages isn't supported here.")
+    }
 
     public func describeFocus() -> FocusInfo? { nil }
 
