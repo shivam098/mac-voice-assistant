@@ -90,6 +90,16 @@ enum NetText {
         DotNet.ordinalIgnoreCase(text).starts(with: DotNet.ordinalIgnoreCase(prefix))
     }
 
+    /// `text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)`.
+    static func endsWithOrdinalIgnoreCase(_ text: String, _ suffix: String) -> Bool {
+        let source = DotNet.ordinalIgnoreCase(text)
+        let target = DotNet.ordinalIgnoreCase(suffix)
+        return source.count >= target.count && source[(source.count - target.count)...].elementsEqual(target)
+    }
+
+    /// `char.IsControl`: the Cc category (U+0000–U+001F and U+007F–U+009F).
+    static func isControl(_ scalar: Unicode.Scalar) -> Bool { scalar.properties.generalCategory == .control }
+
     /// `strings.Distinct()`: the first of each, in order, compared ordinally.
     static func distinct(_ strings: [String]) -> [String] {
         var seen = Set<[Unicode.Scalar]>()
@@ -183,4 +193,31 @@ struct OrdinalMap<Value: Sendable>: Sendable {
     subscript(_ key: String) -> Value? { entries[DotNet.ordinal(key)] }
 
     func contains(_ key: String) -> Bool { entries[DotNet.ordinal(key)] != nil }
+}
+
+/// A C# `HashSet<string>` with `StringComparer.OrdinalIgnoreCase`.
+struct IgnoreCaseSet: Sendable {
+    private let members: Set<[Unicode.Scalar]>
+
+    init(_ members: [String]) {
+        self.members = Set(members.map(DotNet.ordinalIgnoreCase))
+    }
+
+    func contains(_ text: String) -> Bool { members.contains(DotNet.ordinalIgnoreCase(text)) }
+}
+
+/// A C# `Dictionary<string, TValue>` with `StringComparer.OrdinalIgnoreCase`, built with indexer initializers.
+struct IgnoreCaseMap<Value: Sendable>: Sendable {
+    private let entries: [[Unicode.Scalar]: Value]
+
+    init(_ pairs: [(String, Value)]) {
+        var entries: [[Unicode.Scalar]: Value] = [:]
+        for (key, value) in pairs {
+            entries[DotNet.ordinalIgnoreCase(key)] = value
+        }
+
+        self.entries = entries
+    }
+
+    subscript(_ key: String) -> Value? { entries[DotNet.ordinalIgnoreCase(key)] }
 }

@@ -81,6 +81,12 @@ struct DotNetRandom {
 
     /// `Random.NextDouble()`.
     mutating func nextDouble() -> Double { Double(next()) * (1.0 / Double(Int32.max)) }
+
+    /// `Random.Next(maxValue)`.
+    mutating func next(_ maxValue: Int) -> Int { Int(nextDouble() * Double(maxValue)) }
+
+    /// The harness's `Gen.Pick`.
+    mutating func pick<T>(_ items: [T]) -> T { items[next(items.count)] }
 }
 
 /// The harness's escaping (session files, jarvis-core-harness): printable ASCII as is, a backslash doubled, anything

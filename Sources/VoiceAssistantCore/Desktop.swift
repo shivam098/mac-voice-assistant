@@ -50,8 +50,9 @@ public struct TextTargetResult: Equatable, Sendable {
 }
 
 /// The focused control: its accessible name ("Search", possibly empty), whether it takes text, and whether it is part
-/// of a web page. In a browser anything outside the page is the browser's own address, search or find bar.
-/// `addressBar`: the control itself says it is a browser's address bar, in browsers the app doesn't know too.
+/// of a web page (`inPage`: it has a UI Automation Document ancestor on Windows, an `AXWebArea` ancestor on the
+/// Mac). In a browser anything outside the page is the browser's own address, search or find bar. `addressBar`: the
+/// control itself says it is a browser's address bar, in browsers the app doesn't know too.
 public struct FocusInfo: Equatable, Sendable {
     public var name: String
     public var editable: Bool
@@ -198,6 +199,14 @@ public protocol JarvisDesktop: AnyObject {
 
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
+
+    /// The platform's places the brain treats specially: where it never types, the browsers, the file managers.
+    /// Default: Windows'.
+    var brainPlaces: BrainPlaces { get }
+
+    /// A window where text or keys can run a command: the brain never types or presses keys there. Default:
+    /// `BrainSafety.isCommandWindow` with `brainPlaces`; a platform adds the windows it recognises.
+    func isCommandWindow(_ window: WindowInfo) -> Bool
 }
 
 extension JarvisDesktop {
@@ -236,4 +245,8 @@ extension JarvisDesktop {
     public func openURL(_ url: URL) async throws -> DesktopResult { .fail("Opening web pages isn't supported here.") }
 
     public func describeFocus() -> FocusInfo? { nil }
+
+    public var brainPlaces: BrainPlaces { .windows }
+
+    public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlaces) }
 }
