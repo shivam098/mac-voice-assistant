@@ -64,6 +64,19 @@ The porting guide's capability map is the plan. These are the points it leaves o
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.
+- **Back and forward** (⌘[ and ⌘]) are pressed only in browsers and Finder: elsewhere those keys change the indent or
+  list level (Notes, Mail, Pages, Xcode, VS Code), so the pill says "Back works in browsers and Finder."
+- **What the desktop layer must supply** (the core's `JarvisDesktop`, settled in the core's reviews):
+  - the app with the **keyboard focus** (the Accessibility focused application), by **bundle ID**: Spotlight,
+    launchers and a notification's reply take the keys while another app stays in front, and localized or
+    executable names vary;
+  - the app's display name (`NSRunningApplication.localizedName`), since Mac window titles don't end in the app's
+    name;
+  - the window's **default button** (`AXDefaultButton`), because Return presses it whatever has the focus;
+  - a chord presser for the core's Mac chords: letters typed by the current keyboard layout, `[` and `]`, "Delete" as
+    ⌦ and "Backspace" as ⌫ (ThumbFreeMac's chord reader handles only the new-line keys).
+- **The core's threading contract:** the app awaits each controller call before making the next, drops speech while
+  the brain is running, and acts on `ControllerBusy` (a call that overlapped did nothing and says so).
 
 ## The AI brain
 
@@ -74,12 +87,24 @@ The porting guide's capability map is the plan. These are the points it leaves o
 - It runs on 127.0.0.1 with a random port and key, unloads after an hour unused, and keeps every safety limit from the
   core: it acts only after "Hey Jarvis", asks for a **yes** before sending, deleting, buying, closing, opening a program
   or typing more than 200 characters, stops after 8 steps or 30 seconds, and **Esc** stops it at once.
+- **The Mac's guardrails** (the core's `BrainPlatform.mac`, required by the desktop, with no fallback to Windows'):
+  - Apps are matched by bundle ID: terminals, launchers (Spotlight, Raycast, Alfred, LaunchBar), script runners
+    (Script Editor, Automator, Shortcuts), System Settings, Activity Monitor, Disk Utility, Keychain Access, Passwords,
+    Finder and the login and password prompts are no-go places.
+  - The prompt and plans still name keys as on Windows (the prompt is Windows' byte for byte, as measured). Each
+    chord is translated to its Mac chord and judged as pressed: ⌘Space, ⌥⌘⎋, ⌘Q, ⇧⌘Q, ⌃⌘Q, Trash and screenshot
+    chords are refused, and ⌘W asks. The core presses only the chord it judged.
+  - A "yes" is needed for Backspace outside a text box, "Force Quit", "Open Anyway", Mac program files (`.app`,
+    `.command`, `.pkg`, …), and for Return when the window's default button sends, deletes or runs something, or
+    can't be read.
+  - A Mac version of the prompt and the key rules is measured with the brain's test requests in phase 5.
 - Apple silicon first. Whether 8 GB Macs and Intel Macs run it usefully is measured before it's offered there.
 
 ## Permissions
 
-Microphone; **Accessibility** (to read and control other apps); **Input Monitoring** (Fn); and **Automation** for
-Safari, only if you use Safari tabs. The first-run guide explains each one, like ThumbFree's.
+Microphone; **Accessibility** (to read and control other apps, and for the Fn key's tap); **Input Monitoring** only if
+the Fn tap has to fall back to listening; and **Automation** for Safari, only if you use Safari tabs. The first-run
+guide explains each one, like ThumbFree's.
 
 ## Testing
 
@@ -92,11 +117,11 @@ Safari, only if you use Safari tabs. The first-run guide explains each one, like
 
 ## Phases
 
-| Phase | Done when |
-|---|---|
-| 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now |
-| 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) |
-| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders |
-| 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac |
-| 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization |
+| Phase | Done when | Status (November 2026) |
+|---|---|---|
+| 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
+| 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
+| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Next |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | |
+| 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
+| 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization | |
