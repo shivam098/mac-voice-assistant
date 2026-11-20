@@ -78,10 +78,11 @@ extension Board {
 }
 
 /// The board, kept in memory and saved as JSON after every change (written to a temporary file, then swapped in, so a
-/// crash never leaves a half-written file). Thread-safe; change handlers run outside the lock. Saving can fail (a full
-/// disk, no permission): then the change stays in memory, the handlers aren't called and the error is thrown, as in C#.
+/// crash never leaves a half-written file). Thread-safe; change handlers run outside the lock, which is re-entrant
+/// like C#'s `lock`. Saving can fail (a full disk, no permission): then the change stays in memory, the handlers aren't
+/// called and the error is thrown, as in C#.
 public final class BoardStore: Board, @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
     private let path: String?
     private let clock: () -> Date
     private let timeZone: TimeZone
