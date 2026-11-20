@@ -1,9 +1,49 @@
+import ThumbFreeCore
 import XCTest
 @testable import VoiceAssistantCore
 
-/// The parser, app-catalog and phrase-memory cases of windows-voice-assistant
-/// tests/VoiceAssistant.Core.Tests/NaturalLanguageAndLearningTests.cs. Its cases that learn through the interaction
-/// controller come with it.
+private let chromeWindow = windowRef(400, 4, "chrome", "Google - Google Chrome")
+private let notepadWindow = windowRef(300, 3, "Notepad", "Untitled - Notepad")
+
+/// NaturalLanguageAndLearningTests.cs's desktop: it records what it was asked to do, and opens Notepad or Chrome.
+private final class LearningDesktop: JarvisDesktop {
+    var actions: [String] = []
+    var newWindowRequests: [Bool] = []
+    var foreground: WindowInfo?
+    var focusIsEditable: Bool? = true
+    var brainPlatform: BrainPlatform { .windows }
+
+    func foregroundWindow() -> WindowInfo? { foreground }
+
+    func openOrActivate(_ app: AppEntry, newWindow: Bool) async throws -> DesktopResult {
+        actions.append("open:\(app.name)")
+        newWindowRequests.append(newWindow)
+        foreground = app.name == "Notepad" ? notepadWindow : chromeWindow
+        return .ok("ok", window: foreground)
+    }
+
+    func prepareTextTarget(_ window: WindowInfo, profile: AppEntry?) async throws -> TextTargetResult {
+        actions.append("prepare:\(window.processName)")
+        return TextTargetResult(success: true, message: "", hasTrailingText: nil, focusIsEditable: focusIsEditable)
+    }
+
+    func focusSearchBox(_ window: WindowInfo) async throws -> TextTargetResult {
+        TextTargetResult(success: true, message: "")
+    }
+
+    func checkFocusedField() -> AssistantFieldCheck { .safe }
+
+    func focusedTextEndsWithNonWhitespace() -> Bool? { nil }
+
+    func typeText(_ text: String) throws { actions.append("type:\(text)") }
+
+    func pressKeys(_ chord: String) throws { actions.append("keys:\(chord)") }
+
+    func backspace(_ count: Int) throws { actions.append("backspace:\(count)") }
+}
+
+/// windows-voice-assistant tests/VoiceAssistant.Core.Tests/NaturalLanguageAndLearningTests.cs: the parser, the app
+/// catalog and phrase memory, and learning a rephrasing through the interaction controller.
 final class NaturalLanguageAndLearningTests: XCTestCase {
     private let chromeApp = AppEntry(
         name: "Google Chrome", aliases: ["chrome"], launch: "chrome.exe", processNames: ["chrome"],
@@ -150,6 +190,103 @@ final class NaturalLanguageAndLearningTests: XCTestCase {
         XCTAssertFalse(memory.learn("what time is it", "open notepad"))
         XCTAssertFalse(memory.learn("open it up", "open notepad"))
         XCTAssertEqual("open notepad", memory.command(for: "get notepad going"))
+    }
+
+    // MARK: Learning through the interaction controller
+
+    private func create() -> (
+        controller: InteractionController, desktop: LearningDesktop, statuses: StatusLog, memory: PhraseMemory
+    ) {
+        let memory = PhraseMemory()
+        let desktop = LearningDesktop()
+        let statuses = StatusLog()
+        let controller = InteractionController(
+            desktop, AppCatalog([chromeApp, notepadApp], memory: memory), CommandParser(memory: memory),
+            memory: memory)
+        controller.onStatus = statuses.add
+        controller.setListening(true)
+        return (controller, desktop, statuses, memory)
+    }
+
+    func testRephrasingAfterAnUnknownPhraseIsLearnedAndReused() async throws {
+        let (controller, desktop, statuses, memory) = create()
+        try await controller.handleTranscript("Hey Jarvis, get notepad going.", 0.9)
+        XCTAssertEqual([], desktop.actions)
+        try await controller.handleTranscript("Open notepad.", 0.9)
+        XCTAssertTrue(statuses.messages.contains { $0.hasPrefix("Got it") })
+        XCTAssertEqual(1, memory.phraseCount)
+
+        desktop.actions.removeAll()
+        try await controller.handleTranscript("Get notepad going.", 0.9)
+        XCTAssertEqual(["open:Notepad"], desktop.actions)
+    }
+
+    func testUnrelatedPhraseBeforeACommandIsNotLearned() async throws {
+        let (controller, _, _, memory) = create()
+        try await controller.handleTranscript("Hey Jarvis, what time is it?", 0.9)
+        try await controller.handleTranscript("Open notepad.", 0.9)
+        XCTAssertEqual(0, memory.phraseCount)
+    }
+
+    func testSuccessfulOpensAreCounted() async throws {
+        let (controller, _, _, memory) = create()
+        try await controller.handleTranscript("Hey Jarvis, open notepad.", 0.9)
+        try await controller.handleTranscript("Switch to notepad.", 0.9)
+        XCTAssertEqual(2, memory.usesOf("Notepad"))
+    }
+
+    func testOpenAsksForANewWindowButSwitchDoesNot() async throws {
+        let (controller, desktop, _, _) = create()
+        try await controller.handleTranscript("Hey Jarvis, can you open notepad?", 0.9)
+        try await controller.handleTranscript("Switch to notepad.", 0.9)
+        XCTAssertEqual([true, false], desktop.newWindowRequests)
+    }
+
+    func testCommandWithoutWakeWordGetsAHintInsteadOfSilence() async throws {
+        let (controller, desktop, statuses, _) = create()
+        let before = statuses.all.count
+        try await controller.handleTranscript("Can you open notepad?", 0.9)
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertEqual(before + 1, statuses.all.count)
+        XCTAssertTrue(statuses.last?.message.contains("Hey Jarvis") == true)
+    }
+
+    func testOrdinarySpeechInStandbyStaysSilent() async throws {
+        let (controller, _, statuses, _) = create()
+        let before = statuses.all.count
+        try await controller.handleTranscript("I'll grab lunch at one.", 0.9)
+        XCTAssertEqual(before, statuses.all.count)
+    }
+
+    func testStartTypingInABrowserPageGoesToTheAddressBar() async throws {
+        let (controller, desktop, _, _) = create()
+        desktop.foreground = chromeWindow
+        desktop.focusIsEditable = false
+        try await controller.handleTranscript("Hey Jarvis, start typing.", 0.9)
+        XCTAssertEqual(["prepare:chrome", "keys:Ctrl+L"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testStartTypingInAWebTextBoxTypesThere() async throws {
+        let (controller, desktop, _, _) = create()
+        desktop.foreground = chromeWindow
+        desktop.focusIsEditable = true
+        try await controller.handleTranscript("Hey Jarvis, start typing.", 0.9)
+        XCTAssertEqual(["prepare:chrome"], desktop.actions)
+    }
+
+    func testCommandWindowLastsThirtySecondsByDefault() async throws {
+        let clock = TestClock(utc(2026, 11, 4, 12))
+        let memory = PhraseMemory()
+        let desktop = LearningDesktop()
+        let controller = InteractionController(
+            desktop, AppCatalog([chromeApp, notepadApp], memory: memory), CommandParser(memory: memory),
+            options: ControllerOptions(clock: { clock.now }), memory: memory)
+        controller.setListening(true)
+        try await controller.handleTranscript("Hey Jarvis.", 0.9)
+        clock.advance(25)
+        try await controller.handleTranscript("Open notepad.", 0.9)
+        XCTAssertEqual(["open:Notepad"], desktop.actions)
     }
 
     // MARK: Beyond the C# tests

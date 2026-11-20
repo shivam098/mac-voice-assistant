@@ -907,7 +907,7 @@ public final class InteractionController {
             return false
         }
 
-        if let refusal = backForwardRefusal(chord) {
+        if let refusal = backForwardRefusal(chord, keys) {
             trace("back or forward refused outside a browser")
             report(.warning, refusal, heard)
             return false
@@ -926,20 +926,22 @@ public final class InteractionController {
         return true
     }
 
-    /// Why back or forward isn't pressed in the front window, or nil if it may be: only with keys that act elsewhere
-    /// too (`ShortcutKeys.backForwardInBrowsersOnly`) and outside a browser and the file manager.
-    func backForwardRefusal(_ chord: String) -> String? {
+    /// Why back or forward (as `keys` names them) isn't pressed in the front window, or nil if it may be: only with
+    /// keys that act elsewhere too (`ShortcutKeys.backForwardInBrowsersOnly`) and outside a browser and the file
+    /// manager.
+    func backForwardRefusal(_ chord: String, _ keys: ShortcutKeys) -> String? {
         guard keys.backForwardInBrowsersOnly, DotNet.equalsOrdinalIgnoreCase(chord, keys.back)
             || DotNet.equalsOrdinalIgnoreCase(chord, keys.forward), let window = desktop.foregroundWindow()
         else { return nil }
 
+        let platform = desktop.brainPlatform
         let profile = apps.findProfileForProcess(window.processName, window.title)
-        if isBrowser(window, profile) || desktop.brainPlaces.isFileManager(window.processName) {
+        if isBrowser(window, profile) || platform.isFileManager(window.processName) {
             return nil
         }
 
         let back = DotNet.equalsOrdinalIgnoreCase(chord, keys.back)
-        return "\(back ? "Back" : "Forward") works in browsers and \(desktop.brainPlaces.fileManagerName)."
+        return "\(back ? "Back" : "Forward") works in browsers and \(platform.fileManagerName)."
     }
 
     private func send(_ heard: String, _ doneMessage: String) throws -> Bool {

@@ -1,9 +1,124 @@
+import ThumbFreeCore
 import XCTest
 @testable import VoiceAssistantCore
 
-/// The grammar and keystroke-plan cases of windows-voice-assistant tests/VoiceAssistant.Core.Tests/EditingTests.cs
-/// (spoken edits, docs/specs/voice-commands.md, "Editing what you typed"). Its cases against a simulated text box need
-/// the interaction controller and come with it.
+private let editorWindow = windowRef(10, 1, "Notepad", "Untitled - Notepad")
+
+/// EditingTests.cs's text box: typing inserts at the cursor (replacing a selection); Left and Right move (and collapse
+/// a selection); Shift+Left extends the selection; Backspace deletes the selection or the character before the
+/// cursor. Positions are in UTF-16 units, as in C#.
+private final class TextBoxDesktop: JarvisDesktop {
+    private(set) var units: [UInt16] = []
+    private(set) var caret = 0
+
+    /// Characters selected to the left of the cursor.
+    var selectionLength = 0
+    var readable = true
+    var caretKnown = true
+    var editable = true
+    var check = AssistantFieldCheck.safe
+    private(set) var ctrlBackspaces = 0
+    var brainPlatform: BrainPlatform { .windows }
+
+    var text: String { NetText.string(utf16: units) }
+
+    func load(_ text: String) {
+        units = Array(text.utf16)
+        caret = units.count
+        selectionLength = 0
+    }
+
+    func moveCaretToStart() {
+        caret = 0
+        selectionLength = 0
+    }
+
+    /// `Text.Length > 0 && !char.IsWhiteSpace(Text[^1])` (half of a surrogate pair isn't white space).
+    private var endsWithNonWhiteSpace: Bool {
+        guard let last = units.last else { return false }
+        return !(Unicode.Scalar(last).map(DotNet.isWhiteSpace) ?? false)
+    }
+
+    func foregroundWindow() -> WindowInfo? { editorWindow }
+
+    func openOrActivate(_ app: AppEntry, newWindow: Bool) async throws -> DesktopResult {
+        .ok("ok", window: editorWindow)
+    }
+
+    func prepareTextTarget(_ window: WindowInfo, profile: AppEntry?) async throws -> TextTargetResult {
+        TextTargetResult(success: true, message: "", hasTrailingText: endsWithNonWhiteSpace, focusIsEditable: true)
+    }
+
+    func focusSearchBox(_ window: WindowInfo) async throws -> TextTargetResult {
+        TextTargetResult(success: false, message: "no")
+    }
+
+    func checkFocusedField() -> AssistantFieldCheck { check }
+
+    func focusedTextEndsWithNonWhitespace() -> Bool? { endsWithNonWhiteSpace }
+
+    func readTextBeforeCaret() -> CaretText? {
+        guard readable else { return nil }
+        if caretKnown {
+            return CaretText(
+                before: NetText.string(utf16: units[..<caret]), caretKnown: true, hasSelection: selectionLength > 0,
+                editable: editable)
+        }
+
+        return CaretText(before: text, caretKnown: false, hasSelection: false, editable: editable)
+    }
+
+    func typeText(_ text: String) throws {
+        deleteSelection()
+        units.insert(contentsOf: text.utf16, at: caret)
+        caret += text.utf16.count
+    }
+
+    func pressKeys(_ chord: String) throws {
+        switch chord {
+        case "Left":
+            caret = selectionLength > 0 ? caret - selectionLength : max(0, caret - 1)
+            selectionLength = 0
+        case "Right":
+            caret = min(units.count, caret + (selectionLength > 0 ? 0 : 1))
+            selectionLength = 0
+        case "Shift+Left":
+            if caret - selectionLength > 0 {
+                selectionLength += 1
+            }
+        case "Enter":
+            try typeText("\n")
+        case "Ctrl+Backspace":
+            ctrlBackspaces += 1
+        default:
+            break
+        }
+    }
+
+    func backspace(_ count: Int) throws {
+        var left = count
+        if selectionLength > 0 {
+            deleteSelection()
+            left -= 1
+        }
+
+        let n = max(0, min(left, caret))
+        units.removeSubrange((caret - n)..<caret)
+        caret -= n
+    }
+
+    private func deleteSelection() {
+        guard selectionLength > 0 else { return }
+        let start = caret - selectionLength
+        units.removeSubrange(start..<caret)
+        caret = start
+        selectionLength = 0
+    }
+}
+
+/// windows-voice-assistant tests/VoiceAssistant.Core.Tests/EditingTests.cs (spoken edits, docs/specs/voice-commands.md,
+/// "Editing what you typed"): the grammar, the keystroke plans, and the interaction controller against a simulated
+/// text box.
 final class EditingTests: XCTestCase {
     // MARK: Grammar
 
@@ -159,6 +274,119 @@ final class EditingTests: XCTestCase {
         for (heard, phrase) in cases {
             XCTAssertEqual(phrase, parse(heard, .command)?.edit?.phrase, heard)
         }
+    }
+
+    // MARK: The controller against a simulated text box
+
+    private var box: TextBoxDesktop!
+    private var controller: InteractionController!
+    private var statuses: StatusLog!
+
+    override func setUp() {
+        super.setUp()
+        box = TextBoxDesktop()
+        let notepad = AppEntry(
+            name: "Notepad", launch: "notepad.exe", processNames: ["Notepad"], submitKeys: "", newLineKeys: "Enter")
+        controller = InteractionController(
+            box, AppCatalog([notepad]), CommandParser(), options: ControllerOptions(wakeWordEnabled: false))
+        statuses = StatusLog()
+        controller.onStatus = statuses.add
+        controller.setListening(true)
+    }
+
+    private func say(_ text: String) async throws {
+        try await controller.handleTranscript(text, 0.9)
+    }
+
+    func testDeleteTheLastWordsThenKeepTyping() async throws {
+        try await say("Start typing.")
+        try await say("Hello there, my good friend and family.")
+        try await say("Delete the last two words.")
+        XCTAssertEqual("Hello there, my good friend", box.text)
+        try await say("and colleagues.")
+        XCTAssertEqual("Hello there, my good friend and colleagues.", box.text)
+    }
+
+    func testDeleteTheLastSentence() async throws {
+        try await say("Start typing.")
+        try await say("This stays.")
+        try await say("This one goes.")
+        try await say("Delete the last sentence.")
+        XCTAssertEqual("This stays.", box.text)
+        XCTAssertTrue(statuses.last?.message.contains("sentence") == true)
+    }
+
+    func testReplaceAWordInTheMiddleAndReturnToTheEnd() async throws {
+        try await say("Start typing.")
+        try await say("The review is on Monday at noon.")
+        try await say("Replace the word Monday with Tuesday.")
+        XCTAssertEqual("The review is on Tuesday at noon.", box.text)
+        XCTAssertEqual(box.units.count, box.caret)
+        try await say("Bring snacks.")
+        XCTAssertEqual("The review is on Tuesday at noon. Bring snacks.", box.text)
+    }
+
+    func testDeleteAWordInTheMiddle() async throws {
+        try await say("Start typing.")
+        try await say("It is very very good.")
+        try await say("Delete the word very.")
+        XCTAssertEqual("It is very good.", box.text)
+    }
+
+    func testMissingPhraseChangesNothing() async throws {
+        try await say("Start typing.")
+        try await say("Hello world.")
+        try await say("Delete the word banana.")
+        XCTAssertEqual("Hello world.", box.text)
+        XCTAssertEqual(.warning, statuses.last?.kind)
+    }
+
+    func testUnreadableBoxStillDeletesWordsWithCtrlBackspace() async throws {
+        box.readable = false
+        try await say("Start typing.")
+        try await say("One two three.")
+        try await say("Delete the last two words.")
+        XCTAssertEqual(2, box.ctrlBackspaces)
+        try await say("Delete the last sentence.")
+        XCTAssertEqual(.warning, statuses.last?.kind)
+    }
+
+    func testSelectedTextBlocksEdits() async throws {
+        try await say("Start typing.")
+        try await say("Hello world.")
+        box.selectionLength = 3
+        try await say("Delete the last word.")
+        XCTAssertEqual("Hello world.", box.text)
+        XCTAssertTrue(statuses.last?.message.contains("selected") == true)
+    }
+
+    func testReadOnlyTextIsNotEdited() async throws {
+        controller.setListening(true)
+        box.editable = false
+        box.load("Some page text with the word banana.")
+        try await say("Delete banana.")
+        XCTAssertEqual("Some page text with the word banana.", box.text)
+        XCTAssertEqual(.warning, statuses.last?.kind)
+    }
+
+    func testValueOnlyBoxIsTrustedWhileItEndsWithWhatWasTyped() async throws {
+        box.caretKnown = false
+        try await say("Start typing.")
+        try await say("One two three four.")
+        try await say("Delete the last two words.")
+        XCTAssertEqual("One two", box.text)
+        // The user typed more at the end by hand: the value no longer ends with what was typed, so it isn't trusted.
+        try box.typeText(" five")
+        try await say("Delete the last sentence.")
+        XCTAssertEqual("One two five", box.text)
+        XCTAssertEqual(.warning, statuses.last?.kind)
+    }
+
+    func testCommandModeNeedsACheckedField() async throws {
+        box.load("Draft text here")
+        box.check = .unknown
+        try await say("Delete the last word.")
+        XCTAssertEqual("Draft text here", box.text)
     }
 
     // MARK: Beyond the C# tests

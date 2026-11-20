@@ -397,10 +397,11 @@ extension InteractionController {
 
             // After typing a message here, any click could send it. The file manager hides known extensions, so any
             // file there could be a program.
+            let platform = desktop.brainPlatform
             if !confirmed
-                && (TargetResolver.isDestructive(element.name) || BrainSafety.isSendLike(element.name)
-                    || BrainSafety.runsProgram(element.name)
-                    || BrainSafety.isShellItem(window, element.role, desktop.brainPlaces)
+                && (TargetResolver.isDestructive(element.name) || BrainSafety.isSendLike(element.name, platform)
+                    || BrainSafety.runsProgram(element.name, platform)
+                    || BrainSafety.isShellItem(window, element.role, platform)
                     || run.messageTypedIn.contains(window.handle)) {
                 onHighlight?(element.rect)
                 return askFirst(run, steps, index, window, "Click “\(label)”?")
@@ -595,22 +596,30 @@ extension InteractionController {
         return (true, box.name)
     }
 
-    /// A key the model asked for. Keys are named the Windows way (`BrainSafety` says why), so the chords that change
-    /// the tab or page are Windows'.
+    /// A key the model asked for. Plans name keys the Windows way (`BrainSafety` says why). On the Mac each is pressed
+    /// as its Mac chord, which the messages name, and judged by the Mac's rules too; back and forward work only in a
+    /// browser there, as for the voice commands. The chords that change the tab or page are known by their Windows
+    /// names, as in the C#.
     func brainPress(_ run: BrainRun, _ steps: [BrainStep], _ index: Int, confirmed: Bool) throws -> StepResult {
         let heard = run.heard
+        let platform = desktop.brainPlatform
         let named = Self.first(steps[index].target, steps[index].text)
         guard let chord = BrainSafety.normalizeChord(named) else {
             report(.warning, "I can't press “\(Self.short(named, 20))”.", heard)
             return .stop
         }
 
-        if let reason = BrainSafety.refusalReason(chord) {
+        // The keys as pressed and as the messages name them: the chord itself on Windows, its Mac chord on the Mac.
+        let pressed = BrainSafety.pressedChord(chord, platform)
+        let shown = pressed ?? chord
+        if let reason = BrainSafety.refusalReason(chord, platform) {
             trace("brain: refused keys")
-            report(.warning, "I won't press \(chord): \(reason).", heard)
+            report(.warning, "I won't press \(shown): \(reason).", heard)
             return .stop
         }
 
+        // Every chord without keys on this platform was refused above.
+        guard let toPress = pressed else { return .stop }
         guard let window = desktop.foregroundWindow() else {
             report(.warning, "There's no window in front.", heard)
             return .stop
@@ -618,6 +627,12 @@ extension InteractionController {
 
         if desktop.isCommandWindow(window) {
             refuseCommandWindow(window, typing: false, heard)
+            return .stop
+        }
+
+        if let refusal = backForwardRefusal(toPress, platform.kind == .mac ? .mac : .windows) {
+            trace("brain: back or forward refused outside a browser")
+            report(.warning, refusal, heard)
             return .stop
         }
 
@@ -633,16 +648,18 @@ extension InteractionController {
         if character && focus == nil && browser {
             // It could land in the address bar.
             trace("brain: refused keys, focus unknown")
-            report(.warning, "I couldn't tell where \(chord) would go, so I didn't press it.", heard)
+            report(.warning, "I couldn't tell where \(shown) would go, so I didn't press it.", heard)
             return .stop
         }
 
-        if !confirmed && submit, let question = submitQuestion(run, window, chord, focus) {
+        if !confirmed && submit, let question = submitQuestion(run, window, shown, focus) {
             return askFirst(run, steps, index, window, question)
         }
 
-        if !confirmed && BrainSafety.needsConfirmation(chord) {
-            return askFirst(run, steps, index, window, "Press \(chord)?")
+        // On the Mac, Backspace asks unless the focus is a text box.
+        let deciding = BrainSafety.focusDecides(chord, platform) ? (focus ?? desktop.describeFocus()) : focus
+        if !confirmed && BrainSafety.needsConfirmation(chord, platform, focus: deciding) {
+            return askFirst(run, steps, index, window, "Press \(shown)?")
         }
 
         if !checkField(heard, nil, allowUnknown: true) {
@@ -657,20 +674,20 @@ extension InteractionController {
             }
         }
 
-        try desktop.pressKeys(chord)
+        try desktop.pressKeys(toPress)
         segments.removeAll()
         typedTail = nil
         if Self.tabChangingChords(.windows).contains(chord) {
             unbind()
         }
 
-        report(.success, "Pressed \(chord).", heard)
+        report(.success, "Pressed \(shown).", heard)
         return .done
     }
 
     /// Whether Enter, Space or Alt+S needs a "yes" first: after the plan typed a message in this window ("Send it?"),
     /// in any text box that isn't a search box (it may hold a draft), on a button that sends, deletes or runs
-    /// something, and when what has the focus is unknown. Nil when it may go ahead.
+    /// something, and when what has the focus is unknown. Nil when it may go ahead. `chord` is as the messages name it.
     func submitQuestion(_ run: BrainRun, _ window: WindowInfo, _ chord: String, _ focus: FocusInfo?) -> String? {
         if run.messageTypedIn.contains(window.handle) {
             return "Send it?"
@@ -686,14 +703,15 @@ extension InteractionController {
             return name.isEmpty ? "Press \(chord)?" : "Press \(chord) in “\(name)”?"
         }
 
-        let risky = TargetResolver.isDestructive(focus.name) || BrainSafety.isSendLike(focus.name)
-            || BrainSafety.runsProgram(focus.name)
+        let platform = desktop.brainPlatform
+        let risky = TargetResolver.isDestructive(focus.name) || BrainSafety.isSendLike(focus.name, platform)
+            || BrainSafety.runsProgram(focus.name, platform)
         return risky ? "Press \(chord) on “\(name)”?" : nil
     }
 
     /// Typing (type_text, or a letter key into a box) goes only into the page in a browser, never into the browser's
     /// own address, search or find bar (they open file:, local and script addresses), nor into a terminal inside an
-    /// app. The platform's browsers are `JarvisDesktop.brainPlaces`'.
+    /// app. The platform's browsers are `JarvisDesktop.brainPlatform`'s.
     func refuseTypingAt(_ browser: Bool, _ focus: FocusInfo?, _ boxLabel: String?, _ heard: String) -> Bool {
         if focus?.addressBar == true || (browser && focus?.inPage != true) {
             trace("brain: refused typing outside the page")
@@ -719,14 +737,14 @@ extension InteractionController {
 
     /// A web browser, whether or not the app list has it (Brave, Opera, Vivaldi…), by the platform's list.
     func isBrowser(_ window: WindowInfo, _ profile: AppEntry?) -> Bool {
-        profile?.addressBarKeys != nil || BrainSafety.isBrowser(window, desktop.brainPlaces)
+        profile?.addressBarKeys != nil || BrainSafety.isBrowser(window, desktop.brainPlatform)
     }
 
     /// Says why the brain doesn't type or press keys in this window. The C# names File Explorer; the platform's file
-    /// manager is `BrainPlaces.fileManagerName` (Finder on the Mac).
+    /// manager is `BrainPlatform.fileManagerName` (Finder on the Mac).
     func refuseCommandWindow(_ window: WindowInfo, typing: Bool, _ heard: String) {
         trace(typing ? "brain: refused typing in a command window" : "brain: refused keys in a command window")
-        let places = desktop.brainPlaces
+        let places = desktop.brainPlatform
         let fileManager = places.isFileManager(window.processName)
         let message: String
         switch (fileManager, typing) {

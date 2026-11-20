@@ -26,12 +26,49 @@ public struct BrainHTTPResponse: Hashable, Sendable {
     }
 }
 
-/// The HTTP the brain's client needs: URLSession in the app, fakes in tests. `send` throws when no answer came (the
-/// server isn't listening yet, the connection broke) and `CancellationError` when its task is cancelled: a URLSession
-/// transport turns `URLError.cancelled` into `CancellationError`, so a stopped request reads as stopped. Timeouts are
-/// the client's (`LlamaServerClient.requestTimeout`).
+/// The HTTP the brain's client needs: URLSession in the app (`URLSessionBrainHTTP`), fakes in tests. `send` throws
+/// when no answer came (the server isn't listening yet, the connection broke) and `CancellationError` when its task is
+/// cancelled, so a stopped request reads as stopped. Timeouts are the client's (`LlamaServerClient.requestTimeout`).
 public protocol BrainHTTP: Sendable {
     func send(_ request: BrainHTTPRequest) async throws -> BrainHTTPResponse
+}
+
+/// `BrainHTTP` over URLSession (C#'s `HttpClient`). URLSession's `URLError.cancelled` becomes `CancellationError`.
+/// By default the session is ephemeral (it keeps nothing on disk), and URLSession waits for data longer than the
+/// client's time limits, which apply.
+public struct URLSessionBrainHTTP: BrainHTTP {
+    /// How long URLSession waits for data before it gives up: past the client's limits.
+    public static let idleTimeout: TimeInterval = 600
+
+    private let session: URLSession
+
+    public init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = Self.idleTimeout
+            self.session = URLSession(configuration: configuration)
+        }
+    }
+
+    public func send(_ request: BrainHTTPRequest) async throws -> BrainHTTPResponse {
+        var exchange = URLRequest(
+            url: request.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.idleTimeout)
+        exchange.httpMethod = request.method
+        exchange.httpBody = request.body
+        for (name, value) in request.headers {
+            exchange.setValue(value, forHTTPHeaderField: name)
+        }
+
+        do {
+            let (body, response) = try await session.data(for: exchange)
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            return BrainHTTPResponse(status: http.statusCode, body: body)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        }
+    }
 }
 
 /// What went wrong talking to llama-server.

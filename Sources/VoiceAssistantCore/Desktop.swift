@@ -198,8 +198,8 @@ public protocol JarvisDesktop: AnyObject {
     /// Restores the window if minimized, brings it to the front and verifies it is there.
     func activateWindow(_ window: WindowInfo) async throws -> DesktopResult
 
-    /// Opens an http(s) page (`WebLink.url`) in a new tab of the browser in front, else the default browser; the
-    /// result's window is the browser when it came to the front.
+    /// Opens an http(s) page in a new tab of the browser in front, else the default browser; the result's window is the
+    /// browser when it came to the front. It opens `link.url`, never `absoluteUri`, which keeps .NET's Unicode host.
     func openURL(_ link: WebLink) async throws -> DesktopResult
 
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.

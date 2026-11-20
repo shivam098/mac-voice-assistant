@@ -475,7 +475,7 @@ extension InteractionController {
             return true
         case .pressKeys:
             let chord = command.argument ?? ""
-            return Self.tabChangingChords(keys).contains(chord) && backForwardRefusal(chord) == nil
+            return Self.tabChangingChords(keys).contains(chord) && backForwardRefusal(chord, keys) == nil
         default:
             return false
         }

@@ -20,6 +20,7 @@ private final class FakeDesktop: JarvisDesktop {
     var focusIsEditable: Bool? = true
     var trailingNonWhitespace: Bool?
     var searchBoxFound = true
+    var brainPlatform: BrainPlatform { .windows }
 
     func foregroundWindow() -> WindowInfo? { foreground }
 
