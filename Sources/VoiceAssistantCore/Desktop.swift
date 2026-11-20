@@ -114,7 +114,7 @@ public enum DefaultButtonInfo: Equatable, Sendable {
     /// The window has none.
     case noButton
 
-    /// Its accessible name ("Erase", "Send", possibly empty).
+    /// Its accessible name ("Erase", "Send"). An empty one means its title couldn't be read, and counts as unknown.
     case named(String)
 
     /// It couldn't be read.

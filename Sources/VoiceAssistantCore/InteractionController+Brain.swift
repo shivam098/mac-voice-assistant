@@ -162,7 +162,8 @@ extension InteractionController {
     /// The model's reply, or `BrainPlanTimeout` after `ControllerOptions.brainPlanLimit` (C#'s linked token that
     /// cancels after 60 s).
     private func complete(_ brain: BrainModel, _ messages: [ChatTurn]) async throws -> String {
-        let limit = max(0, options.brainPlanLimit)
+        // At most a day, which also stands for .infinity ("no limit"), so the sleep's nanoseconds stay in range.
+        let limit = min(max(0, options.brainPlanLimit), 86_400)
         return try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask { try await brain.complete(messages) }
             group.addTask {
@@ -650,8 +651,9 @@ extension InteractionController {
             return .stop
         }
 
+        // On the Mac the default button's question comes first: Return presses that button even with a box focused.
         if !confirmed && submit,
-           let question = submitQuestion(run, window, shown, focus) ?? defaultButtonQuestion(shown) {
+           let question = defaultButtonQuestion(shown) ?? submitQuestion(run, window, shown, focus) {
             return askFirst(run, steps, index, window, question)
         }
 
@@ -685,22 +687,28 @@ extension InteractionController {
     }
 
     /// On the Mac, Return presses the front window's default button whatever has the focus (an alert's "Erase"), so a
-    /// key that submits needs a "yes" when that button sends, deletes or runs something, and when it can't be read.
-    /// Nil when it may go ahead, and always on Windows, where the C# doesn't read it. `chord` is as the messages name
-    /// it.
+    /// key that submits needs a "yes" when that button sends, deletes or runs something, and when it can't be read
+    /// or has no name (its title couldn't be read). Nil when it may go ahead, and always on Windows, where the C#
+    /// doesn't read it. `chord` is as the messages name it.
     func defaultButtonQuestion(_ chord: String) -> String? {
         let platform = desktop.brainPlatform
         guard platform.kind == .mac else { return nil }
+        let unreadable = "Press \(chord)? I can't see the window's default button."
         switch desktop.describeDefaultButton() {
         case .noButton:
             return nil
         case .unknown:
             trace("brain: default button unknown")
-            return "Press \(chord)? I can't see the window's default button."
+            return unreadable
         case .named(let name):
+            let label = Self.short(DotNet.trim(NameMatcher.cleanElementName(name)), 30)
+            if label.isEmpty {
+                trace("brain: default button unnamed")
+                return unreadable
+            }
+
             let risky = TargetResolver.isDestructive(name) || BrainSafety.isSendLike(name, platform)
                 || BrainSafety.runsProgram(name, platform)
-            let label = Self.short(NameMatcher.cleanElementName(name), 30)
             return risky ? "Press \(chord)? It could press “\(label)”." : nil
         }
     }

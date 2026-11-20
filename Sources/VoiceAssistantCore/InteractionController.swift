@@ -38,7 +38,8 @@ public struct ControllerOptions {
 
     public var wakeWordLabel: String
 
-    /// The most the AI brain may take to answer, in seconds (C#'s `BrainPlanLimit`).
+    /// The most the AI brain may take to answer, in seconds (C#'s `BrainPlanLimit`). At most a day: more, or
+    /// `.infinity`, waits a day.
     public var brainPlanLimit: TimeInterval
     public var clock: () -> Date
 
@@ -72,9 +73,14 @@ public struct ControllerOptions {
 /// - One task makes the calls (`handleTranscript`, `tick`, `setListening`, `insertDictation`, `repeatLastTranscript`
 ///   and `clearUntypedText`) and awaits each before making the next. It also reads `mode`, `target`, `place`,
 ///   `untypedText` and `lastTranscript`, and asks `worthTranscribingInStandby`, between them. An actor alone isn't
-///   enough: it starts another call while one waits at an `await`, and a request to the brain can wait a minute. A
-///   call that starts while another is running is caught: debug builds stop at an assertion, and release builds log
-///   it (`onTrace`) and ignore the call, so the two can't race.
+///   enough: it starts another call while one waits at an `await`, and a request to the brain can wait a minute.
+/// - A call that starts while another is running is a bug in the host. Debug builds stop at an assertion. Release
+///   builds log it (`onTrace`), and the call does nothing and says so, so the two can't race and nothing is lost
+///   silently: `handleTranscript` throws `ControllerBusy`, and the host drops the speech and says "Still working on
+///   your last request." (it never queues it: a "yes" must not run after a plan); `insertDictation` and
+///   `repeatLastTranscript` throw it, and the host keeps the text to type later; `setListening` and
+///   `clearUntypedText` return false, and the host calls them again once the running call has ended; `tick` returns
+///   false, and the next tick does its work.
 /// - While `isBrainRunning`, the host drops speech rather than queueing it (it would run late, on a changed screen),
 ///   and Esc cancels the task running the call. `isBrainRunning` and `brainChanges` are safe to read from any thread.
 /// - The `on…` callbacks run during a call, on its task's thread, which isn't the main thread: the host hops to the
@@ -186,7 +192,7 @@ public final class InteractionController {
     }
 
     /// Starts a public call: false when another is still running, which the class's contract rules out. Then the
-    /// call is logged and ignored, so the two can't race (and debug builds stop at `overlapped`'s assertion).
+    /// call is logged, does nothing and says so (debug builds stop at `overlapped`'s assertion first).
     private func beginCall(_ name: String) -> Bool {
         if calls.enter() {
             return true
@@ -197,8 +203,11 @@ public final class InteractionController {
         return false
     }
 
-    public func setListening(_ listening: Bool) {
-        guard beginCall("setListening") else { return }
+    /// Starts or stops listening. False if another call was still running, so nothing changed: the host calls it again
+    /// once that call has ended.
+    @discardableResult
+    public func setListening(_ listening: Bool) -> Bool {
+        guard beginCall("setListening") else { return false }
         defer { calls.leave() }
         if listening {
             if mode == .paused {
@@ -206,29 +215,39 @@ public final class InteractionController {
                 report(.info, idleMode)
             }
 
-            return
+            return true
         }
 
         if mode != .paused {
             mode = .paused
             report(.info, "Paused. Microphone is off.")
         }
+
+        return true
     }
 
-    public func clearUntypedText() {
-        guard beginCall("clearUntypedText") else { return }
+    /// Forgets `untypedText`. False if another call was still running, so the text is still there: the host calls it
+    /// again once that call has ended.
+    @discardableResult
+    public func clearUntypedText() -> Bool {
+        guard beginCall("clearUntypedText") else { return false }
         defer { calls.leave() }
         untypedText = nil
+        return true
     }
 
-    /// Call periodically: returns to standby when the wake word's command window has expired.
-    public func tick() {
-        guard beginCall("tick") else { return }
+    /// Call periodically: returns to standby when the wake word's command window has expired. False if another call
+    /// was still running; the next tick does the work.
+    @discardableResult
+    public func tick() -> Bool {
+        guard beginCall("tick") else { return false }
         defer { calls.leave() }
         expirePending()
         if expireAwake() {
             report(.info, idleMode)
         }
+
+        return true
     }
 
     /// Handles one utterance. `followsForcedCut`: the audio continues a sentence cut at the length cap, so it is typed
@@ -236,6 +255,7 @@ public final class InteractionController {
     /// model (Hindi and English, say); the command check still uses `transcript`, and it's called only when the
     /// utterance is to be typed. `brainChangesWhenSpoken`: `brainChanges` when the speech started; if the AI brain
     /// started or stopped since, the speech is ignored (it was said before the brain's question or result was shown).
+    /// Throws `ControllerBusy` if another call was still running: the speech was dropped.
     public func handleTranscript(
         _ transcript: String,
         _ confidence: Float,
@@ -243,7 +263,7 @@ public final class InteractionController {
         dictationTranscript: (() async throws -> String)? = nil,
         brainChangesWhenSpoken: Int? = nil
     ) async throws {
-        guard beginCall("handleTranscript") else { return }
+        guard beginCall("handleTranscript") else { throw ControllerBusy(call: "handleTranscript") }
         defer { calls.leave() }
         if mode == .paused {
             return
@@ -432,9 +452,10 @@ public final class InteractionController {
     }
 
     /// Push-to-talk dictation: formats the transcript and types it wherever the cursor is. The user's own key press is
-    /// the consent, so only password and administrator windows are refused.
+    /// the consent, so only password and administrator windows are refused. Throws `ControllerBusy` if another call
+    /// was still running: nothing was typed, and the host keeps the text.
     public func insertDictation(_ transcript: String) throws {
-        guard beginCall("insertDictation") else { return }
+        guard beginCall("insertDictation") else { throw ControllerBusy(call: "insertDictation") }
         defer { calls.leave() }
 
         // Dictation that names a list ("add to my ideas …") is filed on the board instead of typed.
@@ -456,9 +477,10 @@ public final class InteractionController {
         try insertIntoFocused(formatted, cleaned, fileIfNoTextBox: true)
     }
 
-    /// Types the last dictated text again into the focused field.
+    /// Types the last dictated text again into the focused field. Throws `ControllerBusy` if another call was still
+    /// running: nothing was typed.
     public func repeatLastTranscript() throws {
-        guard beginCall("repeatLastTranscript") else { return }
+        guard beginCall("repeatLastTranscript") else { throw ControllerBusy(call: "repeatLastTranscript") }
         defer { calls.leave() }
         guard let last = lastTranscript, !last.isEmpty else {
             report(.info, "There's no previous dictation yet.")
@@ -1240,6 +1262,14 @@ final class BrainActivity: @unchecked Sendable {
         self.running = running
         changes += 1
     }
+}
+
+/// Thrown by the interaction controller's `handleTranscript`, `insertDictation` and `repeatLastTranscript` when they
+/// start while another of its calls is still running, which its contract rules out: the call did nothing. For speech
+/// the host says "Still working on your last request." and never queues it; for push-to-talk it keeps the text.
+public struct ControllerBusy: Error, Equatable, Sendable {
+    /// The call that did nothing ("insertDictation").
+    public let call: String
 }
 
 /// Whether a public call of the interaction controller is running, so one that overlaps it can be caught.

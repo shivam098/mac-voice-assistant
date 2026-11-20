@@ -1228,9 +1228,51 @@ class BrainControllerTests: XCTestCase {
         }
     }
 
+    /// A default button without a name usually means its title couldn't be read: on the Mac a key that submits asks, as
+    /// for one that can't be read at all.
+    func testAnUnnamedDefaultButtonAsksOnTheMac() async throws {
+        frontWindow(outlook)
+        desktop.focusedName = "Message list"
+        desktop.focusEditable = false
+        for unnamed in ["", "  "] {
+            desktop.actions.removeAll()
+            desktop.defaultButton = .named(unnamed)
+            brain.enqueue(planReply("Done.", [("press", "enter", "")]))
+            try await say("Do the thing.")
+            if mac {
+                XCTAssertEqual([], desktop.actions)
+                let question = "Press Enter? I can't see the window's default button. Say “yes” to go ahead, or “no”."
+                XCTAssertEqual(question, lastMessage)
+            } else {
+                XCTAssertEqual(["keys:Enter"], desktop.actions)
+            }
+        }
+    }
+
+    /// In a sheet with a text box focused, Return still presses the default button on the Mac, so the question names
+    /// the button rather than the box. Windows asks about the box, as the C# does.
+    func testTheQuestionNamesARiskyDefaultButtonBeforeTheBoxOnTheMac() async throws {
+        frontWindow(outlook)
+        desktop.focusedName = "Name"
+        desktop.focusEditable = true
+        desktop.defaultButton = .named("Erase")
+        brain.enqueue(planReply("Done.", [("press", "enter", "")]))
+        try await say("Do the thing.")
+        XCTAssertEqual([], desktop.actions)
+        let question = mac ? "Press Enter? It could press “Erase”." : "Press Enter in “Name”?"
+        XCTAssertEqual(question + " Say “yes” to go ahead, or “no”.", lastMessage)
+
+        // A harmless default button leaves the question about the box.
+        desktop.defaultButton = .named("OK")
+        brain.enqueue(planReply("Done.", [("press", "enter", "")]))
+        try await say("Do the thing.")
+        XCTAssertEqual("Press Enter in “Name”? Say “yes” to go ahead, or “no”.", lastMessage)
+    }
+
     /// The threading contract: a call that starts while another is running is caught (an assertion in debug builds,
-    /// which this test replaces), logged and ignored, so the two can't race.
-    func testACallThatOverlapsAnotherIsCaughtAndIgnored() async throws {
+    /// which this test replaces), logged, does nothing, and says so. The speech and push-to-talk calls throw
+    /// `ControllerBusy`, and the others return false, so the host can drop the speech, keep the text, or call again.
+    func testACallThatOverlapsAnotherDoesNothingAndSaysSo() async throws {
         let controller: InteractionController = self.controller
         let overlaps = Recorder<String>()
         controller.overlapped = overlaps.add
@@ -1239,20 +1281,42 @@ class BrainControllerTests: XCTestCase {
         let fake: FakeBrain = brain
         try await waitUntil { !fake.calls.isEmpty }
 
-        controller.tick()
-        controller.setListening(false)
-        try await controller.handleTranscript("Scroll down.", 0.9)
-        XCTAssertEqual(["tick", "setListening", "handleTranscript"], overlaps.all)
+        XCTAssertFalse(controller.tick())
+        XCTAssertFalse(controller.setListening(false))
+        XCTAssertFalse(controller.clearUntypedText())
         XCTAssertEqual(.command, controller.mode)
+        do {
+            try await controller.handleTranscript("Scroll down.", 0.9)
+            XCTFail("The speech wasn't refused.")
+        } catch let busy as ControllerBusy {
+            XCTAssertEqual("handleTranscript", busy.call)
+        }
+
+        do {
+            try controller.insertDictation("Hello there.")
+            XCTFail("The dictation wasn't refused.")
+        } catch let busy as ControllerBusy {
+            XCTAssertEqual("insertDictation", busy.call)
+        }
+
+        do {
+            try controller.repeatLastTranscript()
+            XCTFail("Repeating the dictation wasn't refused.")
+        } catch let busy as ControllerBusy {
+            XCTAssertEqual("repeatLastTranscript", busy.call)
+        }
+
+        let calls = ["tick", "setListening", "clearUntypedText", "handleTranscript", "insertDictation"]
+        XCTAssertEqual(calls + ["repeatLastTranscript"], overlaps.all)
         XCTAssertTrue(traces.all.contains("setListening overlapped another call: ignored"))
+        XCTAssertEqual([], desktop.actions)
         running.cancel()
         try await running.value
 
-        // A call made after the other one ended runs.
-        controller.setListening(false)
+        // Called again once the other call has ended, it runs.
+        XCTAssertTrue(controller.setListening(false))
         XCTAssertEqual(.paused, controller.mode)
-        XCTAssertEqual(3, overlaps.all.count)
-        XCTAssertEqual([], desktop.actions)
+        XCTAssertEqual(6, overlaps.all.count)
     }
 
     /// The brain's time to answer is `ControllerOptions.brainPlanLimit` (60 seconds by default, as in the C#).
@@ -1265,6 +1329,18 @@ class BrainControllerTests: XCTestCase {
         XCTAssertEqual("The AI brain took too long. Try again, or say it another way.", lastMessage)
         XCTAssertFalse(hurried.isBrainRunning)
         XCTAssertEqual([], desktop.actions)
+    }
+
+    /// A plan limit of `.infinity` ("no limit"), or more than a day, waits a day rather than overflowing.
+    func testAnEndlessPlanLimitStillGetsTheAnswer() async throws {
+        for limit in [TimeInterval.infinity, 1e12] {
+            let patient = makeController(wakeWord: false, planLimit: limit)
+            patient.onStatus = statuses.add
+            patient.setListening(true)
+            brain.enqueue(planReply("All good, ready when you are.", []))
+            try await patient.handleTranscript("How are you doing?", 0.9)
+            XCTAssertEqual("All good, ready when you are.", lastMessage, "\(limit)")
+        }
     }
 
     /// A step waits 30 seconds for its "yes", as in the C#.
