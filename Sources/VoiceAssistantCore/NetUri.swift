@@ -28,11 +28,13 @@ public struct WebLink: Hashable, Sendable {
 }
 
 /// How .NET's `Uri.TryCreate(text, UriKind.Absolute, out uri)` reads an http or https address with a DNS host (the only
-/// kind BrainSafety opens), and how `AbsoluteUri` writes it back. Written from probes of .NET 10 and compared with it
-/// on 400,000 generated addresses (jarvis-core-harness: UriModel.cs is this code in C#, UriCorpus.cs the comparison),
-/// with no difference except two kinds of host this refuses: one where .NET's `IdnHost` throws `UriFormatException` (a
-/// joiner, U+FFFD, a combining mark first in a label), and one whose IDN form isn't a DNS name, which .NET accepts (an
-/// ideographic or no-break space inside it becomes an ASCII space).
+/// kind BrainSafety opens), and how `AbsoluteUri` writes it back. Written from probes of .NET 10 (jarvis-core-harness:
+/// UriModel.cs is this code in C#), then compared with it: all six parts of 400,000 generated addresses (UriCorpus.cs),
+/// and the IDN form of every code point in five places in a host (IdnSweep.cs). They agree except for two kinds of
+/// host, which this refuses: those where .NET's `IdnHost` throws `UriFormatException` (a joiner, U+FFFD, a combining
+/// mark first in a label, a character UTS 46 disallows), and those whose IDN form isn't a DNS name, which .NET accepts
+/// (an ideographic or no-break space, or a spacing accent, becomes an ASCII space; fullwidth punctuation, ASCII
+/// punctuation).
 enum NetUri {
     struct Parsed {
         let link: WebLink
@@ -67,7 +69,10 @@ enum NetUri {
         let at = authority.firstIndex(of: "@")
         let hostPort = at.map { Array(authority[($0 + 1)...]) } ?? authority
         let portColon = hostPort.firstIndex(of: ":")
-        let hostScalars = portColon.map { Array(hostPort[..<$0]) } ?? hostPort
+        // Uri drops the bidirectional controls (LRM, RLM, embeddings and overrides) from a host.
+        let hostScalars = (portColon.map { Array(hostPort[..<$0]) } ?? hostPort).filter {
+            !($0 == "\u{200E}" || $0 == "\u{200F}" || ("\u{202A}"..."\u{202E}").contains($0))
+        }
         var port: Int?
         if let portColon, portColon + 1 < hostPort.count {
             var value = 0
@@ -158,12 +163,13 @@ enum NetUri {
 
     // MARK: IDN
 
-    /// The host's IDN form as Windows' IdnToAscii makes it, for the hosts compared: UTS 46's mapping (approximately,
-    /// `uts46Map`), no label starting or ending with a hyphen, labels already in IDN form ("xn--…") checked by decoding
-    /// them, others in Punycode. Nil where IdnToAscii fails or the result isn't a DNS name.
+    /// The host's IDN form as .NET's `IdnHost` makes it: UTS 46's mapping (`uts46Map`), no label starting or ending
+    /// with a hyphen, labels already in IDN form ("xn--…") checked by decoding them, others in Punycode. Nil where .NET
+    /// throws or the result isn't a DNS name.
     private static func idnHost(_ host: [Unicode.Scalar]) -> String? {
+        guard let mapped = uts46Map(host) else { return nil }
         var result: [String] = []
-        for label in uts46Map(host).unicodeScalars.split(separator: ".", omittingEmptySubsequences: false) {
+        for label in mapped.unicodeScalars.split(separator: ".", omittingEmptySubsequences: false) {
             let scalars = Array(label)
             if scalars.first == "-" || scalars.last == "-" {
                 return nil
@@ -172,7 +178,7 @@ enum NetUri {
             if scalars.starts(with: "xn--".unicodeScalars) {
                 let encoded = Array(scalars.dropFirst(4))
                 guard let decoded = punycodeDecode(encoded), !decoded.allSatisfy(\.isASCII), isUnicodeLabel(decoded),
-                      DotNet.ordinalEquals(uts46Map(decoded), DotNet.string(decoded)),
+                      let remapped = uts46Map(decoded), DotNet.ordinalEquals(remapped, DotNet.string(decoded)),
                       punycode(decoded).elementsEqual(encoded)
                 else { return nil }
                 result.append(DotNet.string(scalars))
@@ -188,23 +194,88 @@ enum NetUri {
         return isDnsName(idn) ? idn : nil
     }
 
-    /// UTS 46's mapping, approximately: ideographic full stops as dots, invisible characters dropped, compatibility
-    /// characters folded (NFKC: fullwidth "ｌｏｃａｌ" is "local"), lower case.
-    private static func uts46Map(_ host: [Unicode.Scalar]) -> String {
+    /// Where .NET's `IdnHost` throws though the mapping would take the character (the harness's `idnsweep` tries every
+    /// code point): characters UTS 46 disallows (Hangul fillers, ideographic description characters, Georgian
+    /// capitals, Khmer inherent vowels, digits and dots that NFKC makes "1." or "."), and Unicode 16 characters that
+    /// Windows' ICU doesn't know yet.
+    private static let refused: [(from: UInt32, to: UInt32)] = [
+        (0x04C0, 0x04C0), (0x0897, 0x0897), (0x10A0, 0x10C5), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x1806, 0x1806),
+        (0x1B4E, 0x1B4F), (0x1B7F, 0x1B7F), (0x1C89, 0x1C8A), (0x2024, 0x2024), (0x2132, 0x2132), (0x2183, 0x2183),
+        (0x2427, 0x2429), (0x2488, 0x249B), (0x2FF0, 0x2FFF), (0x3164, 0x3164), (0x31E4, 0x31E5), (0x31EF, 0x31EF),
+        (0x33C2, 0x33C2), (0x33C7, 0x33C7), (0x33D8, 0x33D8), (0xA7CB, 0xA7CD), (0xA7DA, 0xA7DC), (0xFE12, 0xFE12),
+        (0xFE52, 0xFE52), (0xFFA0, 0xFFA0), (0xFFFC, 0xFFFC), (0x105C0, 0x105F3), (0x10D40, 0x10D65),
+        (0x10D69, 0x10D85), (0x10D8E, 0x10D8F), (0x10EC2, 0x10EC4), (0x10EFC, 0x10EFC), (0x11380, 0x11389),
+        (0x1138B, 0x1138B), (0x1138E, 0x1138E), (0x11390, 0x113B5), (0x113B7, 0x113C0), (0x113C2, 0x113C2),
+        (0x113C5, 0x113C5), (0x113C7, 0x113CA), (0x113CC, 0x113D5), (0x113D7, 0x113D8), (0x113E1, 0x113E2),
+        (0x116D0, 0x116E3), (0x11BC0, 0x11BE1), (0x11BF0, 0x11BF9), (0x11F5A, 0x11F5A), (0x13460, 0x143FA),
+        (0x16100, 0x16139), (0x16D40, 0x16D79), (0x18CFF, 0x18CFF), (0x1CC00, 0x1CCF9), (0x1CD00, 0x1CEB3),
+        (0x1E5D0, 0x1E5FA), (0x1E5FF, 0x1E5FF), (0x1F100, 0x1F100), (0x1F8B2, 0x1F8BB), (0x1F8C0, 0x1F8C1),
+        (0x1FA89, 0x1FA89), (0x1FA8F, 0x1FA8F), (0x1FABE, 0x1FABE), (0x1FAC6, 0x1FAC6), (0x1FADC, 0x1FADC),
+        (0x1FADF, 0x1FADF), (0x1FAE9, 0x1FAE9), (0x1FBCB, 0x1FBEF),
+    ]
+
+    /// The Cyrillic small letters U+1C80 to U+1C88 (rounded ve, long-legged de…) fold to these.
+    private static let roundedCyrillic: [UInt32] = [0x432, 0x434, 0x43E, 0x441, 0x442, 0x442, 0x44A, 0x463, 0xA64B]
+
+    /// UTS 46's mapping as .NET's `IdnHost` applies it: ideographic full stops as dots, invisible characters dropped,
+    /// compatibility characters folded (NFKC: fullwidth "ｌｏｃａｌ" is "local"), case folded (`fold`), NFKC again. Nil
+    /// where .NET throws. The harness compared it with .NET on every code point in five places in a host.
+    private static func uts46Map(_ host: [Unicode.Scalar]) -> String? {
         var mapped = String.UnicodeScalarView()
         for c in host {
             switch c.value {
             case 0x3002, 0xFF0E, 0xFF61:
                 mapped.append(".")
-            case 0xAD, 0x200B, 0x2060, 0xFEFF, 0x34F, 0xFE00...0xFE0F, 0x180B...0x180D:
+            case 0xAD, 0x200B, 0x2060, 0xFEFF, 0x34F, 0x180F, 0x200E, 0x200F, 0x2064, 0xFE00...0xFE0F, 0x180B...0x180D,
+                 0x202A...0x202E, 0x1BCA0...0x1BCA3, 0xE0100...0xE01EF:
                 continue
+            case 0x3F2, 0x1D6D3, 0x1D70D, 0x1D747, 0x1D781, 0x1D7BB:
+                // A final sigma only by compatibility (lunate, mathematical) folds to σ; "ς" itself stays.
+                mapped.append("\u{3C3}")
             default:
+                if refused.contains(where: { c.value >= $0.from && c.value <= $0.to }) {
+                    return nil
+                }
+
                 mapped.append(c)
             }
         }
 
         let folded = String(mapped).precomposedStringWithCompatibilityMapping
-        return DotNet.lowerInvariant(folded).precomposedStringWithCompatibilityMapping
+        return fold(folded.unicodeScalars).precomposedStringWithCompatibilityMapping
+    }
+
+    /// Case folding as UTS 46 does it, where it isn't .NET's `ToLowerInvariant` (after NFKC): "İ" is "i̇", U+0345 and
+    /// an iota subscript are an iota, Cherokee folds to its capitals, and the rounded Cyrillic letters to the usual
+    /// ones. "ß" and "ς" keep their case (UTS 46's nontransitional processing, as .NET's).
+    private static func fold(_ scalars: String.UnicodeScalarView) -> String {
+        var out = String.UnicodeScalarView()
+        for c in scalars {
+            switch c.value {
+            case 0x130:
+                out.append(contentsOf: "i\u{307}".unicodeScalars)
+            case 0x345:
+                out.append("\u{3B9}")
+            case 0x13A0...0x13F5:
+                out.append(c)
+            case 0x13F8...0x13FD:
+                out.append(Unicode.Scalar(c.value - 8)!)
+            case 0xAB70...0xABBF:
+                out.append(Unicode.Scalar(c.value - 0xAB70 + 0x13A0)!)
+            case 0x1C80...0x1C88:
+                out.append(Unicode.Scalar(roundedCyrillic[Int(c.value - 0x1C80)])!)
+            default:
+                let lower = DotNet.toLowerInvariant(c)
+                let decomposed = String(lower).decomposedStringWithCanonicalMapping.unicodeScalars
+                if decomposed.contains("\u{345}") {
+                    out.append(contentsOf: decomposed.map { $0 == "\u{345}" ? "\u{3B9}" : $0 })
+                } else {
+                    out.append(lower)
+                }
+            }
+        }
+
+        return String(out)
     }
 
     /// A label IdnToAscii takes: no combining mark first, and no joiners, controls, spaces, format or private-use

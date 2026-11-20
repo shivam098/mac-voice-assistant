@@ -8,8 +8,9 @@ import XCTest
 /// `onlyPages`; 5,000 key chords; 5,000 texts through `cleanText`; 3,000 button and file names; and 2,000 generated
 /// screens through the screen summary. The inputs are drawn with .NET's seeded `Random` from the same lists as the
 /// harness (jarvis-core-harness in the session files: UriCorpus.cs, BrainCorpus.cs), and every 50 cases' outputs must
-/// hash to what the C# gives (`brainDifferentialHashes`). A failure prints the Swift outputs of the first block that
-/// differs; `dotnet run -- brainblock <section> <block>` prints the C# ones.
+/// hash to what the C# gives (`brainDifferentialHashes`). Then every code point in a host, for the IDN mapping, in
+/// blocks of 4,096. A failure prints the Swift outputs of the first block that differs; `dotnet run -- brainblock
+/// <section> <block>` prints the C# ones.
 final class BrainDifferentialTests: XCTestCase {
     private func compare(_ section: String, _ count: Int, _ seed: Int, _ one: (inout DotNetRandom) -> String) {
         let expected = brainDifferentialHashes.split(separator: "\n").filter { $0.hasPrefix(section + " ") }.map {
@@ -75,6 +76,43 @@ final class BrainDifferentialTests: XCTestCase {
             let generated = Generate.screen(&r)
             return Generate.summarized(generated, r.next(16))
         }
+    }
+
+    /// Every code point as a host's middle letter ("a" + c + "b.com"), through `normalizeUrl`, in blocks of 4,096.
+    func testEveryCodePointInAHost() {
+        let expected = brainDifferentialHashes.split(separator: "\n").filter { $0.hasPrefix("idn ") }.map {
+            String($0.dropFirst(4))
+        }
+        XCTAssertEqual(272, expected.count)
+        var outputs: [String] = []
+        var points: [UInt32] = []
+        var blocks = 0
+        var differ: [Int] = []
+        for value in UInt32(0x80)...0x10FFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            outputs.append(Serialized.normalized("a" + String(scalar) + "b.com"))
+            points.append(value)
+            guard outputs.count == 4096 || value == 0x10FFFF else { continue }
+            if blocks < expected.count && Serialized.hash(outputs.map { $0 + "\u{4}" }.joined()) != expected[blocks] {
+                if differ.isEmpty {
+                    // The addresses it reads (`brainblock idn <block>` prints the C#'s for every code point).
+                    print("idn block \(blocks), Swift:")
+                    for (point, output) in zip(points, outputs) where output != "~" {
+                        let hex = String(point, radix: 16, uppercase: true)
+                        print("U+" + String(repeating: "0", count: max(0, 4 - hex.count)) + hex + ": " + Escaped.encode(output))
+                    }
+                }
+
+                differ.append(blocks)
+            }
+
+            blocks += 1
+            outputs.removeAll()
+            points.removeAll()
+        }
+
+        XCTAssertEqual(272, blocks)
+        XCTAssertEqual([], differ, "idn: blocks of 4,096 code points that differ from the C# (the first is printed)")
     }
 }
 

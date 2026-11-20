@@ -8,7 +8,8 @@ import XCTest
 /// plan tidied; K, keys and the chord with its limits; F, a chord's limits; C, `cleanText`; N, the checks on a button
 /// or file name; S, `searchUrl`; M and B, the messages for a request and the body the Windows app posts for them; L, a
 /// llama-server reply and how the Windows app reads it. The addresses and replies are the probe lists the port was
-/// written from, then generated ones.
+/// written from, then generated ones; the last 360 addresses each have one unusual character in the host, for the IDN
+/// mapping.
 final class BrainVectorsTests: XCTestCase {
     private func vectors(_ kind: String, _ count: Int, _ fields: Int) -> [[String]] {
         let rows = brainVectors.split(separator: "\n").map(String.init).filter { $0.hasPrefix(kind + "\t") }.map {
@@ -40,7 +41,7 @@ final class BrainVectorsTests: XCTestCase {
     }
 
     func testAddressesAreReadAsDotNetReadsThem() {
-        compare("U", 400, 4) { cells in
+        compare("U", 760, 4) { cells in
             let input = cells[0] ?? ""
             return (
                 Serialized.address(input).joined(separator: "\t"),
@@ -135,11 +136,16 @@ private struct NoHTTP: BrainHTTP {
 extension Serialized {
     /// `normalizeUrl`'s parts (or ~), `webAddress` (or ~) and `isRefusedAddress`.
     static func address(_ input: String) -> [String] {
-        let normalized = BrainSafety.normalizeUrl(input).map {
-            [$0.absoluteUri, $0.host, $0.idnHost, $0.absolutePath, $0.query, $0.fragment].joined(separator: "\u{3}")
-        }
         let web = BrainSafety.webAddress(input)?.absoluteUri
-        return [normalized ?? "~", web ?? "~", b(BrainSafety.isRefusedAddress(input))]
+        return [normalized(input), web ?? "~", b(BrainSafety.isRefusedAddress(input))]
+    }
+
+    /// `normalizeUrl`'s `absoluteUri`, `host`, `idnHost`, `absolutePath`, `query` and `fragment`, or ~.
+    static func normalized(_ input: String) -> String {
+        let link = BrainSafety.normalizeUrl(input)
+        return link.map {
+            [$0.absoluteUri, $0.host, $0.idnHost, $0.absolutePath, $0.query, $0.fragment].joined(separator: "\u{3}")
+        } ?? "~"
     }
 
     static func steps(_ steps: [BrainStep]) -> String {
