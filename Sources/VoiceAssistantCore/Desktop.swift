@@ -109,6 +109,18 @@ public enum WindowShow: Sendable {
     case maximized
 }
 
+/// The front window's default button (`JarvisDesktop.describeDefaultButton`).
+public enum DefaultButtonInfo: Equatable, Sendable {
+    /// The window has none.
+    case noButton
+
+    /// Its accessible name ("Erase", "Send", possibly empty).
+    case named(String)
+
+    /// It couldn't be read.
+    case unknown
+}
+
 /// A top-level app window: where it is and how it's shown, for the AI brain's view of the screen.
 public struct DesktopWindow: Equatable, Sendable {
     public var window: WindowInfo
@@ -205,6 +217,17 @@ public protocol JarvisDesktop: AnyObject {
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
 
+    /// The front window's default button, which Return presses on the Mac whatever has the focus (`AXDefaultButton`:
+    /// an alert's "Erase", a sheet's "Send"). On the Mac the brain asks before a key that submits when it sends,
+    /// deletes or runs something, and when it can't be read; Windows doesn't read it. Default: `.unknown`, so a Mac
+    /// desktop that doesn't read it asks.
+    func describeDefaultButton() -> DefaultButtonInfo
+
+    /// The name of the window's app as its user sees it (on the Mac `NSRunningApplication.localizedName`), for labels,
+    /// messages and the brain's view of the screen; nil if unknown. Windows names apps from window titles and process
+    /// names, as the C# does, and doesn't ask. Default: nil.
+    func appName(_ window: WindowInfo) -> String?
+
     /// The platform's meanings for the brain's limits: where it never types, the browsers and the file manager, the
     /// button words, program files and keys. No default, so a desktop can't get another platform's by leaving it out.
     var brainPlatform: BrainPlatform { get }
@@ -252,6 +275,10 @@ extension JarvisDesktop {
     }
 
     public func describeFocus() -> FocusInfo? { nil }
+
+    public func describeDefaultButton() -> DefaultButtonInfo { .unknown }
+
+    public func appName(_ window: WindowInfo) -> String? { nil }
 
     public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlatform) }
 }

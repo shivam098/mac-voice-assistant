@@ -37,6 +37,9 @@ public struct ControllerOptions {
     public var learnWindow: TimeInterval
 
     public var wakeWordLabel: String
+
+    /// The most the AI brain may take to answer, in seconds (C#'s `BrainPlanLimit`).
+    public var brainPlanLimit: TimeInterval
     public var clock: () -> Date
 
     public init(
@@ -46,6 +49,7 @@ public struct ControllerOptions {
         awakeTimeout: TimeInterval = 30,
         learnWindow: TimeInterval = 30,
         wakeWordLabel: String = "Hey Jarvis",
+        brainPlanLimit: TimeInterval = 60,
         clock: @escaping () -> Date = { Date() }
     ) {
         self.returnToCommandModeAfterSend = returnToCommandModeAfterSend
@@ -54,13 +58,28 @@ public struct ControllerOptions {
         self.awakeTimeout = awakeTimeout
         self.learnWindow = learnWindow
         self.wakeWordLabel = wakeWordLabel
+        self.brainPlanLimit = brainPlanLimit
         self.clock = clock
     }
 }
 
 /// Owns the standby, command and dictation state machine (windows-voice-assistant's InteractionController.cs, with its
-/// Navigation and Brain parts in the other two files). Not thread-safe: call it from one actor or serial queue. Its
-/// methods throw what the desktop or the board throws (typing stops there), and `CancellationError` when cancelled.
+/// Navigation and Brain parts in the other two files). Its methods throw what the desktop or the board throws (typing
+/// stops there), and `CancellationError` when cancelled.
+///
+/// It isn't thread-safe, and its async methods aren't isolated to an actor, so the host keeps this contract, as the
+/// Windows host does with its one work queue:
+/// - One task makes the calls (`handleTranscript`, `tick`, `setListening`, `insertDictation`, `repeatLastTranscript`
+///   and `clearUntypedText`) and awaits each before making the next. It also reads `mode`, `target`, `place`,
+///   `untypedText` and `lastTranscript`, and asks `worthTranscribingInStandby`, between them. An actor alone isn't
+///   enough: it starts another call while one waits at an `await`, and a request to the brain can wait a minute. A
+///   call that starts while another is running is caught: debug builds stop at an assertion, and release builds log
+///   it (`onTrace`) and ignore the call, so the two can't race.
+/// - While `isBrainRunning`, the host drops speech rather than queueing it (it would run late, on a changed screen),
+///   and Esc cancels the task running the call. `isBrainRunning` and `brainChanges` are safe to read from any thread.
+/// - The `on…` callbacks run during a call, on its task's thread, which isn't the main thread: the host hops to the
+///   main actor for its UI, and never calls back into the controller from a callback (it queues the work instead).
+/// - `brain`, `board` and the callbacks are set before the first call.
 public final class InteractionController {
     let desktop: JarvisDesktop
     let apps: AppCatalog
@@ -95,6 +114,13 @@ public final class InteractionController {
 
     /// The last utterance was "Hey Jarvis" on its own: the next one is addressed to Jarvis.
     var brainAddressed = false
+
+    /// The public call running now, to catch one that overlaps it (the class's contract).
+    let calls = CallGuard()
+
+    /// What a call that overlaps another does besides the log line: fails an assertion (debug builds only). Tests
+    /// replace it to watch.
+    var overlapped: (String) -> Void = { assertionFailure("InteractionController.\($0) overlapped another call.") }
 
     public init(
         _ desktop: JarvisDesktop,
@@ -159,7 +185,21 @@ public final class InteractionController {
         options.wakeWordEnabled ? "Say “\(options.wakeWordLabel)” to give a command." : "Listening for a command."
     }
 
+    /// Starts a public call: false when another is still running, which the class's contract rules out. Then the
+    /// call is logged and ignored, so the two can't race (and debug builds stop at `overlapped`'s assertion).
+    private func beginCall(_ name: String) -> Bool {
+        if calls.enter() {
+            return true
+        }
+
+        trace("\(name) overlapped another call: ignored")
+        overlapped(name)
+        return false
+    }
+
     public func setListening(_ listening: Bool) {
+        guard beginCall("setListening") else { return }
+        defer { calls.leave() }
         if listening {
             if mode == .paused {
                 mode = options.wakeWordEnabled ? .standby : .command
@@ -176,11 +216,15 @@ public final class InteractionController {
     }
 
     public func clearUntypedText() {
+        guard beginCall("clearUntypedText") else { return }
+        defer { calls.leave() }
         untypedText = nil
     }
 
     /// Call periodically: returns to standby when the wake word's command window has expired.
     public func tick() {
+        guard beginCall("tick") else { return }
+        defer { calls.leave() }
         expirePending()
         if expireAwake() {
             report(.info, idleMode)
@@ -199,6 +243,8 @@ public final class InteractionController {
         dictationTranscript: (() async throws -> String)? = nil,
         brainChangesWhenSpoken: Int? = nil
     ) async throws {
+        guard beginCall("handleTranscript") else { return }
+        defer { calls.leave() }
         if mode == .paused {
             return
         }
@@ -388,6 +434,9 @@ public final class InteractionController {
     /// Push-to-talk dictation: formats the transcript and types it wherever the cursor is. The user's own key press is
     /// the consent, so only password and administrator windows are refused.
     public func insertDictation(_ transcript: String) throws {
+        guard beginCall("insertDictation") else { return }
+        defer { calls.leave() }
+
         // Dictation that names a list ("add to my ideas …") is filed on the board instead of typed.
         let cleaned = TranscriptText.clean(transcript)
         if board != nil,
@@ -409,6 +458,8 @@ public final class InteractionController {
 
     /// Types the last dictated text again into the focused field.
     public func repeatLastTranscript() throws {
+        guard beginCall("repeatLastTranscript") else { return }
+        defer { calls.leave() }
         guard let last = lastTranscript, !last.isEmpty else {
             report(.info, "There's no previous dictation yet.")
             return
@@ -838,7 +889,7 @@ public final class InteractionController {
         setPlace(window, placeOf(window, profile))
         report(
             .success,
-            "Typing into “\(profile?.name ?? Self.displayName(window))”. Say “stop typing” when done.",
+            "Typing into “\(profile?.name ?? displayName(window))”. Say “stop typing” when done.",
             heard,
             place: place)
         return true
@@ -851,7 +902,7 @@ public final class InteractionController {
         }
 
         let profile = apps.findProfileForProcess(window.processName, window.title)
-        let name = profile?.name ?? Self.displayName(window)
+        let name = profile?.name ?? displayName(window)
         if let boxKeys = addressBar ? profile?.addressBarKeys : profile?.searchKeys {
             if !checkField(heard, nil, allowUnknown: true) {
                 return false
@@ -1121,8 +1172,14 @@ public final class InteractionController {
         return false
     }
 
-    static func displayName(_ window: WindowInfo) -> String {
-        DotNet.isNullOrWhiteSpace(window.title) ? window.processName : window.title
+    /// What the pill calls a window without a profile: on Windows its title, which names the app there ("Untitled -
+    /// Notepad"), else its process; on the Mac, where titles don't, its app's name (`macAppName`), else its title.
+    func displayName(_ window: WindowInfo) -> String {
+        if desktop.brainPlatform.kind == .mac, let app = macAppName(window) {
+            return app
+        }
+
+        return DotNet.isNullOrWhiteSpace(window.title) ? window.processName : window.title
     }
 
     func report(_ kind: StatusKind, _ message: String, _ heard: String? = nil, place: String? = nil) {
@@ -1182,5 +1239,29 @@ final class BrainActivity: @unchecked Sendable {
         defer { lock.unlock() }
         self.running = running
         changes += 1
+    }
+}
+
+/// Whether a public call of the interaction controller is running, so one that overlaps it can be caught.
+final class CallGuard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = false
+
+    /// Marks a call as running: false if one already is.
+    func enter() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if running {
+            return false
+        }
+
+        running = true
+        return true
+    }
+
+    func leave() {
+        lock.lock()
+        defer { lock.unlock() }
+        running = false
     }
 }

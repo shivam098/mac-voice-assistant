@@ -17,7 +17,7 @@ public struct BrainPlatform: Equatable, Sendable {
         case windows
 
         /// Plans still name Windows keys (the prompt is Windows'): each chord is pressed as its Mac chord, and refused
-        /// or asked about if either Windows' rules or the Mac's say so (`BrainSafety.pressedChord`).
+        /// or asked about if either Windows' rules or the Mac's say so (`BrainSafety.keyPress`).
         case mac
     }
 
@@ -114,19 +114,23 @@ public struct BrainPlatform: Equatable, Sendable {
     /// Terminal and the other terminals, Spotlight and Finder (docs/design.md); as the C# lists PowerToys Run and
     /// PowerShell ISE, Task Manager, regedit and mmc, also the launchers Raycast, Alfred and LaunchBar, the apps that
     /// run scripts (Script Editor, Automator, Shortcuts), and System Settings, the password and login prompts, Activity
-    /// Monitor (it quits processes), Disk Utility (it erases disks) and Keychain Access (it holds passwords). "Force
-    /// Quit" and Gatekeeper's "Open Anyway" need a "yes", as "End task" and "Run anyway" do; so do apps, scripts
-    /// Terminal runs (.command, .tool, .terminal), installer packages, links (.webloc and .inetloc are the Mac's .url,
-    /// and .fileloc's file can be an app), configuration profiles (as .reg) and settings panes (as .cpl).
+    /// Monitor (it quits processes), Disk Utility (it erases disks), and Keychain Access and Passwords (they hold
+    /// passwords). The browsers include those whose address bar is also an AI agent's prompt (ChatGPT Atlas, Comet),
+    /// where typing only inside the page matters most. "Force Quit" and Gatekeeper's "Open Anyway" need a "yes", as
+    /// "End task" and "Run anyway" do; so do apps, scripts Terminal runs (.command, .tool, .terminal), installer
+    /// packages, links (.webloc and .inetloc are the Mac's .url, and .fileloc's file can be an app), configuration
+    /// profiles (as .reg) and settings panes (as .cpl). Bundle IDs not listed in Apple's docs were checked against the
+    /// apps' Homebrew casks.
     public static let mac = BrainPlatform(
         kind: .mac,
         commandProcesses: [
-            "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty", "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "co.zeit.hyper",
-            "org.tabby", "com.apple.Spotlight", "com.raycast.macos", "com.runningwithcrayons.Alfred",
-            "at.obdev.LaunchBar", "com.apple.ScriptEditor2", "com.apple.Automator", "com.apple.shortcuts",
-            "com.apple.systempreferences", "com.apple.SecurityAgent", "com.apple.loginwindow",
-            "com.apple.ActivityMonitor", "com.apple.DiskUtility", "com.apple.keychainaccess", "com.apple.finder",
+            "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "dev.warp.Warp-Preview",
+            "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "org.alacritty", "io.alacritty", "com.github.wez.wezterm",
+            "co.zeit.hyper", "org.tabby", "com.termius-dmg.mac", "com.raphaelamorim.rio", "com.apple.Spotlight",
+            "com.raycast.macos", "com.runningwithcrayons.Alfred", "at.obdev.LaunchBar", "com.apple.ScriptEditor2",
+            "com.apple.Automator", "com.apple.shortcuts", "com.apple.systempreferences", "com.apple.SecurityAgent",
+            "com.apple.loginwindow", "com.apple.ActivityMonitor", "com.apple.DiskUtility", "com.apple.keychainaccess",
+            "com.apple.Passwords", "com.apple.finder",
         ],
         browserProcesses: [
             "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.google.Chrome", "com.google.Chrome.beta",
@@ -135,10 +139,11 @@ public struct BrainPlatform: Equatable, Sendable {
             "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly", "com.brave.Browser", "com.brave.Browser.beta",
             "com.brave.Browser.nightly", "company.thebrowser.Browser", "company.thebrowser.dia",
             "com.operasoftware.Opera", "com.operasoftware.OperaGX", "com.vivaldi.Vivaldi", "org.chromium.Chromium",
-            "com.duckduckgo.macos.browser", "com.kagi.kagimacOS", "app.zen-browser.zen", "org.torproject.torbrowser",
-            "org.chromium.Thorium", "com.naver.Whale", "ru.yandex.desktop.yandex-browser",
+            "com.duckduckgo.macos.browser", "com.kagi.kagimacOS", "app.zen-browser.zen", "org.mozilla.com.zen.browser",
+            "org.torproject.torbrowser", "org.chromium.Thorium", "com.naver.Whale", "ru.yandex.desktop.yandex-browser",
             "io.gitlab.librewolf-community.librewolf", "net.librewolf.librewolf", "net.waterfox.waterfox",
-            "org.waterfoxproject.waterfox", "one.ablaze.floorp", "net.mullvad.mullvadbrowser",
+            "org.waterfoxproject.waterfox", "one.ablaze.floorp", "net.mullvad.mullvadbrowser", "com.openai.atlas",
+            "ai.perplexity.comet", "com.sigmaos.sigmaos.macos",
         ],
         fileManagerProcesses: ["com.apple.finder"], fileManagerName: "Finder",
         sendWords: windowsSendWords + ["force quit", "open anyway"],

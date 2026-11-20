@@ -169,6 +169,14 @@ public final class AppCatalog {
         }
     }
 
+    /// A configured or discovered app with this process name (on the Mac, bundle ID), a configured one first: the
+    /// Mac's names for apps without a profile.
+    public func appForProcess(_ processName: String) -> AppEntry? {
+        (configured + discovered).first { app in
+            app.processNames.contains { DotNet.equalsOrdinalIgnoreCase($0, processName) }
+        }
+    }
+
     private struct Candidate {
         let app: AppEntry
         let configured: Bool

@@ -130,7 +130,7 @@ extension InteractionController {
         }
 
         if let browser = result.window {
-            setPlace(browser, Self.appLabel(browser, apps.findProfileForProcess(browser.processName, browser.title)))
+            setPlace(browser, appLabel(browser, apps.findProfileForProcess(browser.processName, browser.title)))
         }
 
         report(.success, message, heard, place: result.window == nil ? nil : place)
@@ -194,7 +194,7 @@ extension InteractionController {
         }
 
         let title = Self.short(NameMatcher.cleanTabTitle(tab.title), 40)
-        let app = Self.appLabel(tab.window, apps.findProfileForProcess(tab.window.processName, tab.window.title))
+        let app = appLabel(tab.window, apps.findProfileForProcess(tab.window.processName, tab.window.title))
         setPlace(tab.window, "\(app) › \(title)")
         onHighlight?(tab.rect)
         report(.success, "On the “\(title)” tab.", heard, place: place)
@@ -294,7 +294,7 @@ extension InteractionController {
         }
 
         onHighlight?(element.rect)
-        setPlace(window, Self.appLabel(window, apps.findProfileForProcess(window.processName, window.title)))
+        setPlace(window, appLabel(window, apps.findProfileForProcess(window.processName, window.title)))
         report(.success, "Clicked “\(label)”.", heard, place: place)
         return true
     }
@@ -546,12 +546,12 @@ extension InteractionController {
     }
 
     func setPlace(_ window: WindowInfo, _ path: String) {
-        place = path.isEmpty ? Self.displayName(window) : path
+        place = path.isEmpty ? displayName(window) : path
     }
 
     /// The place's first part: the app, and for browsers the tab (from the window title).
     func placeOf(_ window: WindowInfo, _ profile: AppEntry?) -> String {
-        let app = Self.appLabel(window, profile)
+        let app = appLabel(window, profile)
         if profile?.searchKeys == nil {
             return app
         }
@@ -560,9 +560,17 @@ extension InteractionController {
         return tab.isEmpty ? app : "\(app) › \(tab)"
     }
 
-    static func appLabel(_ window: WindowInfo, _ profile: AppEntry?) -> String {
+    /// What labels, messages and the brain's view of the screen call the window's app. A profile's name, else on
+    /// Windows as the C# names it: the title's last " - " part ("Report.docx - Word"), else the process in title
+    /// case. Mac window titles don't name the app ("Untitled" in TextEdit) and the process is a bundle ID, so there
+    /// it's `macAppName`.
+    func appLabel(_ window: WindowInfo, _ profile: AppEntry?) -> String {
         if let profile {
             return profile.name
+        }
+
+        if desktop.brainPlatform.kind == .mac {
+            return macAppName(window) ?? displayName(window)
         }
 
         // Apps usually end their title with their name ("Report.docx - Word"); short titles are the name ("Copilot").
@@ -575,6 +583,22 @@ extension InteractionController {
         return DotNet.isNullOrWhiteSpace(window.processName)
             ? displayName(window)
             : NetText.toTitleCase(window.processName)
+    }
+
+    /// A Mac app's name: the desktop's (`JarvisDesktop.appName`), else that of a configured or discovered app with the
+    /// window's bundle ID, else the bundle ID's last part ("com.apple.TextEdit" is "TextEdit"). Nil without a bundle
+    /// ID.
+    func macAppName(_ window: WindowInfo) -> String? {
+        if let name = desktop.appName(window).map({ DotNet.trim($0) }), !name.isEmpty {
+            return name
+        }
+
+        if let app = apps.appForProcess(window.processName) {
+            return app.name
+        }
+
+        let last = DotNet.trim(NetText.split(window.processName, ".").last ?? "")
+        return last.isEmpty ? nil : last
     }
 
     static func describe(_ target: ElementTarget) -> String {

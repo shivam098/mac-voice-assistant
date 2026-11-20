@@ -7,7 +7,6 @@ import ThumbFreeCore
 /// model says: no typing or keys in command windows, no Win+R, web links only, a "yes" before anything that sends,
 /// deletes, closes or types a lot, at most 8 steps and 30 seconds. Traces name tools, never words or names.
 extension InteractionController {
-    static let brainPlanLimit: TimeInterval = 60
     static let brainRunLimit: TimeInterval = 30
 
     /// True while the brain is planning or acting, so Esc can stop it. Safe to read from any thread.
@@ -160,9 +159,10 @@ extension InteractionController {
         }
     }
 
-    /// The model's reply, or `BrainPlanTimeout` after `brainPlanLimit` (C#'s linked token that cancels after 60 s).
+    /// The model's reply, or `BrainPlanTimeout` after `ControllerOptions.brainPlanLimit` (C#'s linked token that
+    /// cancels after 60 s).
     private func complete(_ brain: BrainModel, _ messages: [ChatTurn]) async throws -> String {
-        let limit = Self.brainPlanLimit
+        let limit = max(0, options.brainPlanLimit)
         return try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask { try await brain.complete(messages) }
             group.addTask {
@@ -372,7 +372,7 @@ extension InteractionController {
             return last ? .done : .waiting
         }
 
-        setPlace(browser, Self.appLabel(browser, apps.findProfileForProcess(browser.processName, browser.title)))
+        setPlace(browser, appLabel(browser, apps.findProfileForProcess(browser.processName, browser.title)))
         report(.info, message, heard)
         return .done
     }
@@ -433,7 +433,7 @@ extension InteractionController {
             return .done
         }
 
-        let app = Self.appLabel(window, apps.findProfileForProcess(window.processName, window.title))
+        let app = appLabel(window, apps.findProfileForProcess(window.processName, window.title))
         report(.warning, "I couldn't find “\(Self.short(name, 40))” in \(app).", heard)
         return .stop
     }
@@ -461,7 +461,7 @@ extension InteractionController {
 
         let length = text.utf16.count
         if !confirmed && run.typedChars + length > BrainSafety.maxTypedWithoutAsking {
-            let app = Self.appLabel(window, apps.findProfileForProcess(window.processName, window.title))
+            let app = appLabel(window, apps.findProfileForProcess(window.processName, window.title))
             return askFirst(run, steps, index, window, "Type \(length) characters into \(app)?")
         }
 
@@ -596,10 +596,11 @@ extension InteractionController {
         return (true, box.name)
     }
 
-    /// A key the model asked for. Plans name keys the Windows way (`BrainSafety` says why). On the Mac each is pressed
-    /// as its Mac chord, which the messages name, and judged by the Mac's rules too; back and forward work only in a
-    /// browser there, as for the voice commands. The chords that change the tab or page are known by their Windows
-    /// names, as in the C#.
+    /// A key the model asked for. Plans name keys the Windows way (`BrainSafety` says why). The chord is judged once
+    /// (`BrainSafety.keyPress`), and only the keys judged are pressed: on the Mac its Mac chord, which the messages
+    /// name, judged by the Mac's rules too. Back and forward work only in a browser there, as for the voice commands,
+    /// and a key that submits is judged by the default button it would press too. The chords that change the tab or
+    /// page are known by their Windows names, as in the C#.
     func brainPress(_ run: BrainRun, _ steps: [BrainStep], _ index: Int, confirmed: Bool) throws -> StepResult {
         let heard = run.heard
         let platform = desktop.brainPlatform
@@ -609,17 +610,14 @@ extension InteractionController {
             return .stop
         }
 
-        // The keys as pressed and as the messages name them: the chord itself on Windows, its Mac chord on the Mac.
-        let pressed = BrainSafety.pressedChord(chord, platform)
-        let shown = pressed ?? chord
-        if let reason = BrainSafety.refusalReason(chord, platform) {
+        let press = BrainSafety.keyPress(chord, platform)
+        let shown = press.shown
+        guard let toPress = press.pressable else {
             trace("brain: refused keys")
-            report(.warning, "I won't press \(shown): \(reason).", heard)
+            report(.warning, "I won't press \(shown): \(press.refusal ?? "a Mac has no key for it").", heard)
             return .stop
         }
 
-        // Every chord without keys on this platform was refused above.
-        guard let toPress = pressed else { return .stop }
         guard let window = desktop.foregroundWindow() else {
             report(.warning, "There's no window in front.", heard)
             return .stop
@@ -652,13 +650,14 @@ extension InteractionController {
             return .stop
         }
 
-        if !confirmed && submit, let question = submitQuestion(run, window, shown, focus) {
+        if !confirmed && submit,
+           let question = submitQuestion(run, window, shown, focus) ?? defaultButtonQuestion(shown) {
             return askFirst(run, steps, index, window, question)
         }
 
         // On the Mac, Backspace asks unless the focus is a text box.
-        let deciding = BrainSafety.focusDecides(chord, platform) ? (focus ?? desktop.describeFocus()) : focus
-        if !confirmed && BrainSafety.needsConfirmation(chord, platform, focus: deciding) {
+        let deciding = press.focusDecides ? (focus ?? desktop.describeFocus()) : focus
+        if !confirmed && press.needsConfirmation(focus: deciding) {
             return askFirst(run, steps, index, window, "Press \(shown)?")
         }
 
@@ -683,6 +682,27 @@ extension InteractionController {
 
         report(.success, "Pressed \(shown).", heard)
         return .done
+    }
+
+    /// On the Mac, Return presses the front window's default button whatever has the focus (an alert's "Erase"), so a
+    /// key that submits needs a "yes" when that button sends, deletes or runs something, and when it can't be read.
+    /// Nil when it may go ahead, and always on Windows, where the C# doesn't read it. `chord` is as the messages name
+    /// it.
+    func defaultButtonQuestion(_ chord: String) -> String? {
+        let platform = desktop.brainPlatform
+        guard platform.kind == .mac else { return nil }
+        switch desktop.describeDefaultButton() {
+        case .noButton:
+            return nil
+        case .unknown:
+            trace("brain: default button unknown")
+            return "Press \(chord)? I can't see the window's default button."
+        case .named(let name):
+            let risky = TargetResolver.isDestructive(name) || BrainSafety.isSendLike(name, platform)
+                || BrainSafety.runsProgram(name, platform)
+            let label = Self.short(NameMatcher.cleanElementName(name), 30)
+            return risky ? "Press \(chord)? It could press “\(label)”." : nil
+        }
     }
 
     /// Whether Enter, Space or Alt+S needs a "yes" first: after the plan typed a message in this window ("Send it?"),
@@ -799,7 +819,7 @@ extension InteractionController {
     }
 
     func brainAppName(_ window: WindowInfo) -> String {
-        Self.appLabel(window, apps.findProfileForProcess(window.processName, window.title))
+        appLabel(window, apps.findProfileForProcess(window.processName, window.title))
     }
 
     static func first(_ values: String...) -> String { values.first { !$0.isEmpty } ?? "" }
@@ -814,5 +834,5 @@ extension InteractionController {
     }
 }
 
-/// The model gave no answer within `InteractionController.brainPlanLimit`.
+/// The model gave no answer within `ControllerOptions.brainPlanLimit`.
 private struct BrainPlanTimeout: Error {}

@@ -118,6 +118,12 @@ private final class BrainDesktop: JarvisDesktop {
     /// Boxes that are the browser's own rather than the page's: its address bar, in any language.
     var browserBars: Set<String> = ["Address and search bar", "Adress- und Suchleiste"]
 
+    /// The front window's default button (none, as in the C# tests, unless a test sets one).
+    var defaultButton = DefaultButtonInfo.noButton
+
+    /// Apps' names by process, as the Mac desktop reports them.
+    var appNames: [String: String] = [:]
+
     init(_ platform: BrainPlatform, browser: WindowInfo) {
         brainPlatform = platform
         self.browser = browser
@@ -154,9 +160,13 @@ private final class BrainDesktop: JarvisDesktop {
 
     func typeText(_ text: String) throws { actions.append("type:\(text)") }
 
-    /// Every chord pressed is one the platform's desktop can press (`ShortcutKeys` documents the grammar).
+    /// On the Mac, every chord pressed is one the Mac desktop can press (`ShortcutKeys` documents the grammar).
+    /// Windows' C# rules also let a modifier on its own through ("Ctrl+Alt"), which its desktop presses.
     func pressKeys(_ chord: String) throws {
-        XCTAssertTrue(ChordGrammar.parses(chord, mac: brainPlatform.kind == .mac), chord)
+        if brainPlatform.kind == .mac {
+            XCTAssertTrue(ChordGrammar.parses(chord, mac: true), chord)
+        }
+
         actions.append("keys:\(chord)")
     }
 
@@ -212,6 +222,10 @@ private final class BrainDesktop: JarvisDesktop {
         let bar = browserBars.contains(name)
         return FocusInfo(name: name, editable: focusEditable ?? true, inPage: !bar, addressBar: bar)
     }
+
+    func describeDefaultButton() -> DefaultButtonInfo { defaultButton }
+
+    func appName(_ window: WindowInfo) -> String? { appNames[window.processName] }
 }
 
 /// BrainTests.cs's tests of the controller running plans (docs/design/ai-brain.md), with a desktop that names Windows'
@@ -234,7 +248,7 @@ class BrainControllerTests: XCTestCase {
     }
 
     /// The keys the desktop is asked to press for a plan's chord on this platform.
-    func pressed(_ chord: String) -> String { BrainSafety.pressedChord(chord, Self.platform) ?? chord }
+    func pressed(_ chord: String) -> String { BrainSafety.keyPress(chord, Self.platform).keys ?? chord }
 
     var terminal: WindowInfo { windowRef(1, 11, process("WindowsTerminal"), "Windows PowerShell") }
     var chrome: WindowInfo { windowRef(2, 12, process("chrome"), "Home - YouTube - Google Chrome") }
@@ -288,11 +302,13 @@ class BrainControllerTests: XCTestCase {
     }
 
     /// A controller on this desktop and brain, as the C# tests make them.
-    func makeController(wakeWord: Bool, apps extra: [AppEntry] = []) -> InteractionController {
+    func makeController(
+        wakeWord: Bool, apps extra: [AppEntry] = [], catalog: AppCatalog? = nil, planLimit: TimeInterval = 60
+    ) -> InteractionController {
         let clock: TestClock = self.clock
         let controller = InteractionController(
-            desktop, AppCatalog([chromeApp, notepadApp] + extra), CommandParser(keys: mac ? .mac : .windows),
-            options: ControllerOptions(wakeWordEnabled: wakeWord, clock: { clock.now }))
+            desktop, catalog ?? AppCatalog([chromeApp, notepadApp] + extra), CommandParser(keys: mac ? .mac : .windows),
+            options: ControllerOptions(wakeWordEnabled: wakeWord, brainPlanLimit: planLimit, clock: { clock.now }))
         controller.brain = brain
         return controller
     }
@@ -1148,11 +1164,228 @@ class BrainControllerTests: XCTestCase {
         XCTAssertEqual([], desktop.actions)
         XCTAssertTrue(lastMessage.hasPrefix("Type 202 characters"), lastMessage)
     }
+
+    /// Every chord a plan can name is pressed, if at all, as exactly the keys `BrainSafety.keyPress` judged, and never
+    /// when they're refused or need a "yes". On the Mac they are its Mac chords.
+    func testTheControllerPressesOnlyTheKeysJudged() async throws {
+        frontWindow(notepad)
+        desktop.focusedName = "Body"
+        desktop.focusEditable = true
+        var pressedCount = 0
+        for chord in BrainKeysTests.allChords {
+            desktop.actions.removeAll()
+            brain.enqueue(planReply("Done.", [("press", chord, "")]))
+            try await say("Do the thing.")
+            let press = BrainSafety.keyPress(chord, Self.platform)
+            let keys = desktop.actions.filter { $0.hasPrefix("keys:") }
+            if let refusal = press.refusal {
+                XCTAssertEqual([], keys, chord)
+                XCTAssertEqual("I won't press \(press.shown): \(refusal).", lastMessage, chord)
+            } else if !keys.isEmpty {
+                XCTAssertEqual(["keys:\(press.keys ?? "")"], keys, chord)
+                XCTAssertFalse(press.needsConfirmation(focus: desktop.describeFocus()), chord)
+                pressedCount += 1
+            }
+        }
+
+        XCTAssertGreaterThan(pressedCount, 300)
+    }
+
+    /// On the Mac, Return presses the front window's default button whatever has the focus: Ctrl+Alt+J (⌥⌘J) opens
+    /// Mail's "Erase Junk Mail" alert, and the Enter after it asks first. A default button that doesn't send, delete
+    /// or run something doesn't ask, and one that can't be read does. Windows doesn't read it, as in the C#.
+    func testKeysThatSubmitAreJudgedByTheDefaultButtonOnTheMac() async throws {
+        frontWindow(outlook)
+        desktop.focusedName = "Message list"
+        desktop.focusEditable = false
+        desktop.defaultButton = .named("Erase")
+        brain.enqueue(planReply("Cleaned up.", [("press", "ctrl+alt+j", ""), ("press", "enter", "")]))
+        try await say("Do the thing.")
+        if mac {
+            XCTAssertEqual(["keys:Alt+Cmd+J"], desktop.actions)
+            XCTAssertEqual("Press Enter? It could press “Erase”. Say “yes” to go ahead, or “no”.", lastMessage)
+            try await say("Yes.")
+        }
+
+        XCTAssertEqual(["keys:\(pressed("Ctrl+Alt+J"))", "keys:Enter"], desktop.actions)
+
+        desktop.actions.removeAll()
+        desktop.defaultButton = .named("OK")
+        brain.enqueue(planReply("Done.", [("press", "enter", "")]))
+        try await say("Do the thing.")
+        XCTAssertEqual(["keys:Enter"], desktop.actions)
+
+        desktop.actions.removeAll()
+        desktop.defaultButton = .unknown
+        brain.enqueue(planReply("Done.", [("press", "space", "")]))
+        try await say("Do the thing.")
+        if mac {
+            XCTAssertEqual([], desktop.actions)
+            let question = "Press Space? I can't see the window's default button. Say “yes” to go ahead, or “no”."
+            XCTAssertEqual(question, lastMessage)
+        } else {
+            XCTAssertEqual(["keys:Space"], desktop.actions)
+        }
+    }
+
+    /// The threading contract: a call that starts while another is running is caught (an assertion in debug builds,
+    /// which this test replaces), logged and ignored, so the two can't race.
+    func testACallThatOverlapsAnotherIsCaughtAndIgnored() async throws {
+        let controller: InteractionController = self.controller
+        let overlaps = Recorder<String>()
+        controller.overlapped = overlaps.add
+        brain.hang = true
+        let running = Task { try await controller.handleTranscript("What's the weather in Bangalore?", 0.9) }
+        let fake: FakeBrain = brain
+        try await waitUntil { !fake.calls.isEmpty }
+
+        controller.tick()
+        controller.setListening(false)
+        try await controller.handleTranscript("Scroll down.", 0.9)
+        XCTAssertEqual(["tick", "setListening", "handleTranscript"], overlaps.all)
+        XCTAssertEqual(.command, controller.mode)
+        XCTAssertTrue(traces.all.contains("setListening overlapped another call: ignored"))
+        running.cancel()
+        try await running.value
+
+        // A call made after the other one ended runs.
+        controller.setListening(false)
+        XCTAssertEqual(.paused, controller.mode)
+        XCTAssertEqual(3, overlaps.all.count)
+        XCTAssertEqual([], desktop.actions)
+    }
+
+    /// The brain's time to answer is `ControllerOptions.brainPlanLimit` (60 seconds by default, as in the C#).
+    func testABrainThatTakesTooLongIsStopped() async throws {
+        brain.hang = true
+        let hurried = makeController(wakeWord: false, planLimit: 0.05)
+        hurried.onStatus = statuses.add
+        hurried.setListening(true)
+        try await hurried.handleTranscript("What's the weather in Bangalore?", 0.9)
+        XCTAssertEqual("The AI brain took too long. Try again, or say it another way.", lastMessage)
+        XCTAssertFalse(hurried.isBrainRunning)
+        XCTAssertEqual([], desktop.actions)
+    }
+
+    /// A step waits 30 seconds for its "yes", as in the C#.
+    func testAStepWaitingForYesExpiresAfterThirtySeconds() async throws {
+        frontWindow(outlook)
+        desktop.clickable[outlook.handle] = [UiElement(id: 302, name: "Delete", role: .button, rect: r(80, 10, 60))]
+        brain.enqueue(planReply("Deleted it.", [("click", "Delete", "")]))
+        try await say("Get rid of this email.")
+        clock.advance(31)
+        try await say("Yes.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertEqual("That waited too long, so I didn't do it. Ask again.", lastMessage)
+
+        brain.enqueue(planReply("Deleted it.", [("click", "Delete", "")]))
+        try await say("Get rid of this email.")
+        clock.advance(30)
+        try await say("Yes.")
+        XCTAssertEqual(["click:302"], desktop.actions)
+    }
+
+    /// Esc cancels the call's task while a step runs: the plan stops there and nothing after that step runs.
+    func testEscDuringAStepStopsThePlan() async throws {
+        desktop.onActivate = cancelCurrentTask
+        brain.enqueue(mrBeastPlan())
+        let controller: InteractionController = self.controller
+        try await Task { try await controller.handleTranscript("Open the MrBeast video on YouTube.", 0.9) }.value
+        XCTAssertEqual(["activate:\(chrome.processName)"], desktop.actions)
+        XCTAssertEqual("Stopped.", lastMessage)
+        XCTAssertFalse(controller.isBrainRunning)
+    }
+
+    /// The same for the rest of a plan that goes on after a "yes".
+    func testEscDuringAStepResumedAfterYesStopsThePlan() async throws {
+        frontWindow(outlook)
+        desktop.windows.append(DesktopWindow(window: chrome, show: .normal, rect: r(0, 0, 960, 1040), workArea: screen))
+        desktop.clickable[outlook.handle] = [UiElement(id: 302, name: "Delete", role: .button, rect: r(80, 10, 60))]
+        brain.enqueue(planReply(
+            "Deleted it.", [("click", "Delete", ""), ("focus_window", chrome.title, ""), ("click", mrBeast.name, "")]))
+        try await say("Get rid of this email.")
+        XCTAssertEqual([], desktop.actions)
+
+        desktop.onActivate = cancelCurrentTask
+        let controller: InteractionController = self.controller
+        try await Task { try await controller.handleTranscript("Yes.", 0.9) }.value
+        XCTAssertEqual(["click:302", "activate:\(chrome.processName)"], desktop.actions)
+        XCTAssertEqual("Stopped.", lastMessage)
+        XCTAssertFalse(controller.isBrainRunning)
+    }
+
+    /// A letter could land in a browser's address bar, so it isn't pressed when what has the focus is unknown.
+    func testALetterInABrowserIsNotPressedWhenTheFocusIsUnknown() async throws {
+        frontWindow(chrome)
+        brain.enqueue(planReply("Muted.", [("press", "m", "")]))
+        try await say("Mute the video.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertEqual("I couldn't tell where M would go, so I didn't press it.", lastMessage)
+    }
+
+    /// Apps without a profile, named as the C# names them on Windows: the title's last " - " part, else the process
+    /// in title case. BrainControllerMacTests overrides this with the Mac's names.
+    func testAppsWithoutAProfileAreNamedAsThePlatformNamesThem() async throws {
+        let word = windowRef(30, 40, "WINWORD", "Report.docx - Word")
+        let shell = windowRef(31, 41, "pwsh", "A window title much longer than thirty characters")
+        desktop.windows = [word, shell].map { DesktopWindow(window: $0, show: .normal) }
+        desktop.foreground = word
+        brain.enqueue(planReply("Hello.", []))
+        try await say("Do the thing.")
+        let asked = brain.lastRequest
+        XCTAssertTrue(asked.contains(#""Report.docx - Word" (Word)"#), asked)
+        XCTAssertTrue(asked.contains(#""A window title much longer than thirty characters" (Pwsh)"#), asked)
+    }
 }
 
 /// The same tests on the Mac's platform, and the Mac's own.
 final class BrainControllerMacTests: BrainControllerTests {
     override class var platform: BrainPlatform { .mac }
+
+    /// Real Mac titles don't name the app ("Untitled" in TextEdit, a page in Safari, a folder in Finder), and the
+    /// process is a bundle ID: the name comes from the desktop, else the app list, else the bundle ID's last part.
+    override func testAppsWithoutAProfileAreNamedAsThePlatformNamesThem() async throws {
+        let textEdit = windowRef(21, 31, "com.apple.TextEdit", "Untitled")
+        let safari = windowRef(22, 32, "com.apple.Safari", "Apple")
+        let finder = windowRef(23, 33, "com.apple.finder", "Downloads")
+        let code = windowRef(24, 34, "com.microsoft.VSCode", "main.swift — mac-voice-assistant")
+        let slack = windowRef(25, 35, "com.tinyspeck.slackmacgap", "general (Channel) - Acme - Slack")
+        desktop.windows = [textEdit, safari, finder, code, slack].map { DesktopWindow(window: $0, show: .normal) }
+        desktop.foreground = textEdit
+        desktop.appNames = [
+            "com.apple.TextEdit": "TextEdit", "com.apple.Safari": "Safari", "com.apple.finder": "Finder",
+        ]
+        let vsCode = "com.microsoft.VSCode"
+        let catalog = AppCatalog([])
+        catalog.setDiscoveredApps([AppEntry(name: "Visual Studio Code", launch: vsCode, processNames: [vsCode])])
+        let named = makeController(wakeWord: false, catalog: catalog)
+        named.onStatus = statuses.add
+        named.setListening(true)
+
+        brain.enqueue(planReply("Hello.", []))
+        try await named.handleTranscript("Do the thing.", 0.9)
+        let asked = brain.lastRequest
+        let listed = [
+            #""Untitled" (TextEdit)"#, #""Apple" (Safari)"#, #""Downloads" (Finder)"#,
+            #""main.swift — mac-voice-assistant" (Visual Studio Code)"#,
+            #""general (Channel) - Acme - Slack" (slackmacgap)"#,
+        ]
+        for line in listed {
+            XCTAssertTrue(asked.contains(line), line)
+        }
+
+        // The messages and the place name the app too.
+        brain.enqueue(planReply("Typed it.", [("type_text", "", String(repeating: "a", count: 250))]))
+        try await named.handleTranscript("Compose a long note.", 0.9)
+        XCTAssertTrue(lastMessage.hasPrefix("Type 250 characters into TextEdit?"), lastMessage)
+        brain.enqueue(planReply("Done.", [("click", "Erase", "")]))
+        try await named.handleTranscript("Do the thing.", 0.9)
+        XCTAssertEqual("I couldn't find “Erase” in TextEdit.", lastMessage)
+        brain.enqueue(planReply("Here it is.", [("focus_window", "Finder", "")]))
+        try await named.handleTranscript("Do the thing.", 0.9)
+        XCTAssertEqual(["activate:com.apple.finder"], desktop.actions)
+        XCTAssertEqual("Finder", statuses.last?.place)
+    }
 
     /// Safari isn't in the app list: it's a browser by its bundle identifier, so the brain types only inside its page
     /// (where the focus has an `AXWebArea` ancestor).

@@ -48,7 +48,7 @@ final class BrainKeysTests: XCTestCase {
     }
 
     /// Every chord `normalizeChord` can write: modifiers in its order (Ctrl, Alt, Shift, Win), then one key.
-    private static let allChords: [String] = {
+    static let allChords: [String] = {
         let modifiers = ["Ctrl", "Alt", "Shift", "Win"]
         let keys = [
             "Enter", "Tab", "Esc", "Backspace", "Delete", "Space", "Home", "End", "Up", "Down", "Left", "Right",
@@ -94,10 +94,16 @@ final class BrainKeysTests: XCTestCase {
             ("Ctrl+D", "Cmd+D", .refuse), ("Ctrl+Shift+D", "Shift+Cmd+D", .ask), ("Ctrl+Q", "Cmd+Q", .refuse),
             ("Ctrl+Alt+Q", "Alt+Cmd+Q", .refuse), ("Ctrl+Shift+Q", "Shift+Cmd+Q", .refuse),
             ("Ctrl+Alt+Shift+Q", "Alt+Shift+Cmd+Q", .refuse), ("Ctrl+Shift+W", "Shift+Cmd+W", .ask),
-            ("Ctrl+Alt+W", "Alt+Cmd+W", .ask), ("Ctrl+Space", "Cmd+Space", .refuse),
+            ("Ctrl+Alt+W", "Alt+Cmd+W", .ask), ("Ctrl+Alt+Shift+W", "Alt+Shift+Cmd+W", .ask),
+            ("Ctrl+Space", "Cmd+Space", .refuse),
             ("Ctrl+Alt+Space", "Alt+Cmd+Space", .refuse), ("Ctrl+Alt+Esc", "Alt+Cmd+Esc", .refuse),
             ("Ctrl+Alt+Shift+Esc", "Alt+Shift+Cmd+Esc", .refuse), ("Ctrl+Esc", "Cmd+Esc", .refuse),
             ("Ctrl+Shift+Esc", "Shift+Cmd+Esc", .press), ("Ctrl+Alt+F5", "Alt+Cmd+F5", .refuse),
+            // Screenshots, which Windows' rules never allow either.
+            ("Ctrl+Shift+3", "Shift+Cmd+3", .refuse), ("Ctrl+Shift+4", "Shift+Cmd+4", .refuse),
+            ("Ctrl+Shift+5", "Shift+Cmd+5", .refuse), ("Ctrl+Shift+6", "Shift+Cmd+6", .refuse),
+            ("Ctrl+Alt+Shift+4", "Alt+Shift+Cmd+4", .refuse), ("Ctrl+Shift+7", "Shift+Cmd+7", .press),
+            ("Ctrl+3", "Cmd+3", .press),
             // Moving by word and paragraph, and opening.
             ("Ctrl+Left", "Alt+Left", .press), ("Ctrl+Right", "Alt+Right", .press), ("Ctrl+Up", "Alt+Up", .press),
             ("Ctrl+Down", "Alt+Down", .press), ("Ctrl+Shift+Left", "Alt+Shift+Left", .press),
@@ -125,7 +131,7 @@ final class BrainKeysTests: XCTestCase {
             ("Ctrl", nil, .refuse), ("Shift", nil, .refuse), ("Ctrl+Shift", nil, .refuse),
         ]
         for test in cases {
-            XCTAssertEqual(test.mac, BrainSafety.pressedChord(test.windows, .mac), test.windows)
+            XCTAssertEqual(test.mac, BrainSafety.keyPress(test.windows, .mac).keys, test.windows)
             XCTAssertEqual(test.verdict, verdict(test.windows, .mac), test.windows)
         }
     }
@@ -138,7 +144,7 @@ final class BrainKeysTests: XCTestCase {
             ("Ctrl+D", "in a Save dialog it throws the changes away"), ("Ctrl+Alt+Down", "it opens the selected file"),
             ("Ctrl+Alt+F5", "it changes the accessibility settings"), ("Win+D", "a Mac has no key for it"),
             ("Win+Up", "a Mac has no key for it"), ("Ctrl+C", "I type text myself rather than use the clipboard"),
-            ("Win+R", "it can run commands"), ("Ctrl+L", nil),
+            ("Win+R", "it can run commands"), ("Ctrl+Shift+4", "it takes screenshots"), ("Ctrl+L", nil),
         ]
         check(cases) { BrainSafety.refusalReason($0, .mac) }
     }
@@ -146,7 +152,7 @@ final class BrainKeysTests: XCTestCase {
     func testMacChordsNoPlanReachesAreRefusedToo() {
         let chords = [
             "Cmd+Backspace", "Shift+Cmd+Backspace", "Ctrl+Cmd+Q", "Cmd+Down", "Shift+Cmd+Down", "Cmd+F5",
-            "Ctrl+F2", "Ctrl+F3", "Ctrl+F8",
+            "Ctrl+F2", "Ctrl+F3", "Ctrl+F8", "Ctrl+Shift+Cmd+3", "Ctrl+Shift+Cmd+4",
         ]
         for chord in chords {
             XCTAssertNotNil(BrainSafety.macRefusalReason(chord), chord)
@@ -154,27 +160,39 @@ final class BrainKeysTests: XCTestCase {
 
         XCTAssertNil(BrainSafety.macRefusalReason("Cmd+Up"))
         XCTAssertNil(BrainSafety.macRefusalReason("Alt+Down"))
+        XCTAssertNil(BrainSafety.macRefusalReason("Ctrl+Cmd+4"))
     }
 
     func testBackspaceOnTheMacAsksUnlessItEditsAText() {
         let box = FocusInfo(name: "Message", editable: true, inPage: true)
         let list = FocusInfo(name: "Inbox", editable: false, inPage: false)
         for chord in ["Backspace", "Shift+Backspace", "Ctrl+Backspace", "Alt+Backspace"] {
-            XCTAssertTrue(BrainSafety.focusDecides(chord, .mac), chord)
-            XCTAssertFalse(BrainSafety.focusDecides(chord, .windows), chord)
+            XCTAssertTrue(BrainSafety.keyPress(chord, .mac).focusDecides, chord)
+            XCTAssertFalse(BrainSafety.keyPress(chord, .windows).focusDecides, chord)
             XCTAssertEqual(.press, verdict(chord, .mac, focus: box), chord)
             XCTAssertEqual(.ask, verdict(chord, .mac, focus: list), chord)
             XCTAssertEqual(.ask, verdict(chord, .mac), chord)
             XCTAssertEqual(.press, verdict(chord, .windows, focus: list), chord)
         }
 
-        XCTAssertFalse(BrainSafety.focusDecides("Delete", .mac))
+        XCTAssertFalse(BrainSafety.keyPress("Delete", .mac).focusDecides)
         XCTAssertEqual(.refuse, verdict("Ctrl+Alt+Backspace", .mac, focus: box))
     }
 
-    func testWindowsPressesEachChordAsNamed() {
+    /// A chord is judged once, with the keys that are pressed: on Windows the chord as named, on the Mac its Mac chord;
+    /// none when refused.
+    func testTheKeysPressedAreTheKeysJudged() {
         for chord in Self.allChords {
-            XCTAssertEqual(chord, BrainSafety.pressedChord(chord, .windows))
+            let windows = BrainSafety.keyPress(chord, .windows)
+            XCTAssertEqual(chord, windows.keys)
+            XCTAssertEqual(windows.refusal == nil ? chord : nil, windows.pressable, chord)
+            let mac = BrainSafety.keyPress(chord, .mac)
+            XCTAssertEqual(BrainSafety.macChord(chord), mac.keys, chord)
+            XCTAssertEqual(mac.refusal == nil ? mac.keys : nil, mac.pressable, chord)
+            XCTAssertEqual(mac.keys ?? chord, mac.shown, chord)
+            if let keys = mac.pressable {
+                XCTAssertNil(BrainSafety.macRefusalReason(keys), chord)
+            }
         }
     }
 
@@ -185,7 +203,7 @@ final class BrainKeysTests: XCTestCase {
             "Alt+Shift+Cmd+Backspace", "Cmd+D", "Cmd+F5", "Alt+Cmd+F5", "Cmd+C", "Cmd+X", "Cmd+V", "Shift+Cmd+V",
             "Alt+Cmd+V", "Alt+Shift+Cmd+V", "Alt+Cmd+C", "Ctrl+F2", "Ctrl+F3", "Ctrl+F8",
         ]
-        let askFirst: Set<String> = ["Cmd+W", "Alt+Cmd+W", "Shift+Cmd+W", "Shift+Cmd+D"]
+        let askFirst: Set<String> = ["Shift+Cmd+D"]
         // 16 sets of modifiers with 74 keys, and the 32 chords whose key is a modifier.
         XCTAssertEqual(1_216, Self.allChords.count)
         var allowed = 0
@@ -195,20 +213,22 @@ final class BrainKeysTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(mac, windows, chord)
             guard windows != .refuse else { continue }
             allowed += 1
-            guard let pressed = BrainSafety.pressedChord(chord, .mac) else {
+            guard let pressed = BrainSafety.keyPress(chord, .mac).keys else {
                 XCTAssertEqual(.refuse, mac, chord)
                 continue
             }
 
             let pieces = pressed.split(separator: "+").map(String.init)
             let key = pieces[pieces.count - 1]
+            let command = pieces.contains("Cmd")
             XCTAssertTrue(ChordGrammar.parses(pressed, mac: true), "\(chord): \(pressed)")
             XCTAssertFalse(pieces.contains("Win"), "\(chord): \(pressed)")
-            if neverPressed.contains(pressed) || (key == "Down" && pieces.contains("Cmd")) {
+            let screenshot = command && pieces.contains("Shift") && ["3", "4", "5", "6"].contains(key)
+            if neverPressed.contains(pressed) || (key == "Down" && command) || screenshot {
                 XCTAssertEqual(.refuse, mac, "\(chord): \(pressed)")
             }
 
-            if askFirst.contains(pressed) || key == "Delete" || key == "Backspace" {
+            if askFirst.contains(pressed) || (key == "W" && command) || key == "Delete" || key == "Backspace" {
                 XCTAssertNotEqual(.press, mac, "\(chord): \(pressed)")
             }
         }

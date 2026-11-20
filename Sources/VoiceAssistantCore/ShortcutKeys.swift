@@ -24,7 +24,7 @@ public enum Shortcut: CaseIterable, Sendable {
 /// The keys the core presses for its shortcuts, so the same commands press the Mac's shortcuts on the Mac. The C# core
 /// spells out Windows chords (Ctrl+C, Alt+Left, F5, Ctrl+Backspace, Win+Up); `windows` has them, and the ported tests
 /// use it unchanged. `mac` follows docs/design.md, "Mac shortcuts". (Carbon has a `KeyMap`, hence the name.) The AI
-/// brain's plans name Windows chords too; on the Mac, `BrainSafety.pressedChord` turns them into Mac chords with these.
+/// brain's plans name Windows chords too; on the Mac, `BrainSafety.keyPress` turns them into Mac chords with these.
 ///
 /// A chord is its modifiers, then one key, joined by "+" ("Ctrl+Shift+Tab", "Shift+Cmd+Z"). The desktop layer presses
 /// exactly this grammar:
