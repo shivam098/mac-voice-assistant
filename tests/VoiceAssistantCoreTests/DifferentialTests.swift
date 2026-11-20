@@ -15,12 +15,12 @@ final class DifferentialTests: XCTestCase {
         let golden = differentialHashes.split(separator: "\n").map(String.init)
         XCTAssertEqual(3000 + 1500 + 800, golden.count)
         var failures: [String] = []
-        var mismatches = 0
+        var mismatches: [String] = []
         var next = 0
         func record(_ section: String, _ index: Int, _ outputs: [String]) {
             let actual = Serialized.hash(outputs.joined(separator: "\u{1}"))
             if next < golden.count && actual != golden[next] {
-                mismatches += 1
+                mismatches.append("\(section) \(index)")
                 if failures.count < 8 {
                     let shown = outputs.enumerated().map { "    \($0.offset): \(Escaped.encode($0.element))" }
                     failures.append("\(section) \(index):\n" + shown.joined(separator: "\n"))
@@ -46,7 +46,10 @@ final class DifferentialTests: XCTestCase {
             record("r", i, resolution(&random))
         }
 
-        XCTAssertEqual(0, mismatches, "\(mismatches) cases differ; the first:\n" + failures.joined(separator: "\n"))
+        XCTAssertEqual(
+            0, mismatches.count,
+            "\(mismatches.count) cases differ (\(mismatches.prefix(200).joined(separator: ", "))); the first:\n"
+                + failures.joined(separator: "\n"))
     }
 }
 

@@ -1,7 +1,7 @@
 import ThumbFreeCore
 
-/// .NET string rules the C# core uses beyond ThumbFreeCore's `DotNet`: string separators, integer parsing, suffixes
-/// and UTF-16 positions. Like `DotNet`, they compare ordinally, scalar by scalar.
+/// .NET string rules the C# core uses beyond ThumbFreeCore's `DotNet`: string separators, integer parsing, suffixes,
+/// UTF-16 positions and text elements. Like `DotNet`, they compare ordinally, scalar by scalar.
 enum NetText {
     /// `text[..^suffix.Length]`, for a `suffix` that `DotNet.endsWith` found.
     static func dropSuffix(_ text: String, _ suffix: String) -> String {
@@ -104,6 +104,53 @@ enum NetText {
     /// The string of these UTF-16 code units (whole surrogate pairs, as the core's positions always are).
     static func string<C: Collection>(utf16 units: C) -> String where C.Element == UInt16 {
         String(decoding: units, as: UTF16.self)
+    }
+
+    /// `new StringInfo(text).LengthInTextElements`.
+    static func textElementCount(_ text: String) -> Int {
+        text.reduce(0) { $0 + textElements($1).count }
+    }
+
+    /// The UTF-16 length of the last text element (where `StringInfo.ParseCombiningCharacters` puts the last start),
+    /// or nil for empty text.
+    static func lastTextElementLength(_ text: String) -> Int? {
+        text.last.flatMap { textElements($0).last }
+    }
+
+    /// The UTF-16 lengths of the .NET text elements in `character`. Both are Unicode's grapheme clusters, but Swift
+    /// (since 5.7) also keeps an Indic conjunct such as क्ष together (Unicode 15.1's rule GB9c), and .NET 10 doesn't.
+    /// Inside a `Character`, only that rule puts a scalar that extends nothing (ष) after one that extends (the virama,
+    /// or a joiner after it), apart from emoji joined by a ZWJ (rule GB11). A .NET text element starts at each one.
+    private static func textElements(_ character: Character) -> [Int] {
+        let scalars = Array(character.unicodeScalars)
+        guard scalars.count > 1 else { return [character.utf16.count] }
+        var lengths: [Int] = []
+        var length = 0
+        for (i, scalar) in scalars.enumerated() {
+            if i > 0 && extends(scalars[i - 1]) && !extends(scalar)
+                && !(scalars[i - 1] == "\u{200D}" && continuesEmoji(scalar)) {
+                lengths.append(length)
+                length = 0
+            }
+
+            length += scalar.utf16.count
+        }
+
+        lengths.append(length)
+        return lengths
+    }
+
+    /// Whether `scalar` stays in the grapheme cluster of whatever comes before it (rules GB9 and GB9a: a combining
+    /// mark, a joiner or a spacing mark), asked of Swift's own grapheme rules.
+    private static func extends(_ scalar: Unicode.Scalar) -> Bool { oneCluster("\u{301}", scalar) }
+
+    /// Whether `scalar` continues an emoji sequence after a ZWJ (rule GB11).
+    private static func continuesEmoji(_ scalar: Unicode.Scalar) -> Bool { oneCluster("\u{1F600}\u{200D}", scalar) }
+
+    private static func oneCluster(_ start: String, _ scalar: Unicode.Scalar) -> Bool {
+        var scalars = start.unicodeScalars
+        scalars.append(scalar)
+        return String(scalars).count == 1
     }
 }
 

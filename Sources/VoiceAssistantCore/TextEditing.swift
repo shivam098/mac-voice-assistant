@@ -48,9 +48,9 @@ public struct EditPlan: Hashable, Sendable {
 }
 
 /// Turns spoken edits into exact keys. Works on the text before the cursor (line ends as "\n"), counts text elements
-/// (Swift `Character`s, .NET's text elements: an emoji or an accented letter is one Backspace), and never looks further
-/// back than it was given. Positions are UTF-16 offsets, as in C#. The same rules apply on every platform; only
-/// reading the text and pressing keys are the platform's.
+/// as .NET does (`NetText.textElementCount`: an emoji or an accented letter is one), and never looks further back than
+/// it was given. Positions are UTF-16 offsets, as in C#. The same rules apply on every platform; only reading the text
+/// and pressing keys are the platform's.
 public enum TextEditing {
     /// The furthest an edit may reach back, in text elements: arrow-key edits further than this are refused.
     public static let maxReach = 3000
@@ -89,7 +89,7 @@ public enum TextEditing {
             return nil
         }
 
-        let elements = removed.count
+        let elements = NetText.textElementCount(removed)
         if elements > maxReach {
             return nil
         }
@@ -124,13 +124,14 @@ public enum TextEditing {
 
         let after = NetText.string(utf16: text[end...])
         let removed = NetText.string(utf16: text[start..<end])
-        let keepAfter = after.count
-        if keepAfter + removed.count > maxReach {
+        let keepAfter = NetText.textElementCount(after)
+        let delete = NetText.textElementCount(removed)
+        if keepAfter + delete > maxReach {
             return nil
         }
 
         return EditPlan(
-            keepAfter: keepAfter, delete: removed.count, insert: insert,
+            keepAfter: keepAfter, delete: delete, insert: insert,
             textAfterEdit: NetText.string(utf16: text[..<start]) + insert + after, removed: found)
     }
 
@@ -176,8 +177,8 @@ public enum TextEditing {
     }
 
     private static func previousTextElement(_ text: [UInt16], _ end: Int) -> Int {
-        guard let last = NetText.string(utf16: text[..<end]).last else { return 0 }
-        return end - last.utf16.count
+        guard let last = NetText.lastTextElementLength(NetText.string(utf16: text[..<end])) else { return 0 }
+        return end - last
     }
 
     /// A word is a run of non-space characters, with the punctuation attached to it ("world.").

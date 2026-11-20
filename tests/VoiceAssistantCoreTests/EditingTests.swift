@@ -184,7 +184,8 @@ final class EditingTests: XCTestCase {
     }
 
     func testDevanagariConjunctsAreCountedAsInDotNet() {
-        // .NET 10 splits a conjunct after its virama (क्ष is क् and ष): it doesn't have Unicode 15.1's GB9c rule.
+        // .NET 10 splits a conjunct after its virama (क्ष is क् and ष): it doesn't have Unicode 15.1's rule GB9c.
+        // Swift's `Character` keeps the conjunct whole; the core counts as .NET does.
         let cases: [(String, String, Int)] = [
             ("\u{915}\u{94D}\u{937}", "\u{915}\u{94D}", 2),
             ("\u{928}\u{92E}\u{938}\u{94D}\u{924}\u{947}", "\u{928}\u{92E}\u{938}\u{94D}", 4),
