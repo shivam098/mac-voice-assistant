@@ -192,3 +192,84 @@ final class LlamaServerTests: XCTestCase {
         XCTAssertEqual(2, server.requests.count)
     }
 }
+
+/// llama-server behind URLSession: one that answers at once with what it was sent, one that never answers.
+private final class EchoServer: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let client,
+              let response = HTTPURLResponse(url: url, statusCode: 201, httpVersion: "HTTP/1.1", headerFields: nil)
+        else { return }
+
+        // URLSession hands the body over as a stream.
+        var body = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            let size = 4096
+            var buffer = [UInt8](repeating: 0, count: size)
+            while true {
+                let count = stream.read(&buffer, maxLength: size)
+                if count <= 0 {
+                    break
+                }
+
+                body.append(contentsOf: buffer[..<count])
+            }
+
+            stream.close()
+        }
+
+        let heard = "\(request.httpMethod ?? "") \(request.value(forHTTPHeaderField: "Authorization") ?? "") "
+        client.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client.urlProtocol(self, didLoad: Data(heard.utf8) + body)
+        client.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class SilentServer: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {}
+
+    override func stopLoading() {}
+}
+
+/// The app's transport: requests go out as asked, and a stopped one throws `CancellationError`.
+final class URLSessionBrainHTTPTests: XCTestCase {
+    private func transport(_ server: URLProtocol.Type) -> URLSessionBrainHTTP {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [server]
+        return URLSessionBrainHTTP(session: URLSession(configuration: configuration))
+    }
+
+    private let address = URL(string: "http://127.0.0.1:8123/v1/chat/completions")!
+
+    func testARequestGoesOutAsAskedAndItsAnswerComesBack() async throws {
+        let request = BrainHTTPRequest(
+            method: "POST", url: address, headers: ["Authorization": "Bearer key"], body: Data("{}".utf8))
+        let response = try await transport(EchoServer.self).send(request)
+        XCTAssertEqual(201, response.status)
+        XCTAssertEqual("POST Bearer key {}", String(decoding: response.body, as: UTF8.self))
+    }
+
+    func testAStoppedRequestThrowsCancellationError() async throws {
+        let http = transport(SilentServer.self)
+        let request = BrainHTTPRequest(method: "GET", url: address)
+        let task = Task { try await http.send(request) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("answered")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+    }
+}

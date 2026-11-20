@@ -31,8 +31,9 @@ public struct ChatTurn: Hashable, Sendable {
 }
 
 /// The language model that turns a request and a screen summary into a plan (C#'s `IBrainModel`): llama-server in the
-/// app, through `LlamaServerClient`; fakes in tests.
-public protocol BrainModel: AnyObject {
+/// app, through `LlamaServerClient`; fakes in tests. `Sendable`: the interaction controller races `complete` against
+/// its time limit in a child task.
+public protocol BrainModel: AnyObject, Sendable {
     var availability: BrainAvailability { get }
 
     /// The model's reply to the conversation, constrained to `BrainPrompt.grammar`. Loads the model first when it is

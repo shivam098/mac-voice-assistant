@@ -109,6 +109,18 @@ public enum WindowShow: Sendable {
     case maximized
 }
 
+/// The front window's default button (`JarvisDesktop.describeDefaultButton`).
+public enum DefaultButtonInfo: Equatable, Sendable {
+    /// The window has none.
+    case noButton
+
+    /// Its accessible name ("Erase", "Send"). An empty one means its title couldn't be read, and counts as unknown.
+    case named(String)
+
+    /// It couldn't be read.
+    case unknown
+}
+
 /// A top-level app window: where it is and how it's shown, for the AI brain's view of the screen.
 public struct DesktopWindow: Equatable, Sendable {
     public var window: WindowInfo
@@ -198,11 +210,23 @@ public protocol JarvisDesktop: AnyObject {
     /// Restores the window if minimized, brings it to the front and verifies it is there.
     func activateWindow(_ window: WindowInfo) async throws -> DesktopResult
 
-    /// Opens an http(s) page in the default browser; the result's window is the browser when it came to the front.
-    func openURL(_ url: URL) async throws -> DesktopResult
+    /// Opens an http(s) page in a new tab of the browser in front, else the default browser; the result's window is the
+    /// browser when it came to the front. It opens `link.url`, never `absoluteUri`, which keeps .NET's Unicode host.
+    func openURL(_ link: WebLink) async throws -> DesktopResult
 
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
+
+    /// The front window's default button, which Return presses on the Mac whatever has the focus (`AXDefaultButton`:
+    /// an alert's "Erase", a sheet's "Send"). On the Mac the brain asks before a key that submits when it sends,
+    /// deletes or runs something, and when it can't be read; Windows doesn't read it. Default: `.unknown`, so a Mac
+    /// desktop that doesn't read it asks.
+    func describeDefaultButton() -> DefaultButtonInfo
+
+    /// The name of the window's app as its user sees it (on the Mac `NSRunningApplication.localizedName`), for labels,
+    /// messages and the brain's view of the screen; nil if unknown. Windows names apps from window titles and process
+    /// names, as the C# does, and doesn't ask. Default: nil.
+    func appName(_ window: WindowInfo) -> String?
 
     /// The platform's meanings for the brain's limits: where it never types, the browsers and the file manager, the
     /// button words, program files and keys. No default, so a desktop can't get another platform's by leaving it out.
@@ -246,9 +270,15 @@ extension JarvisDesktop {
         .fail("Switching windows isn't supported here.")
     }
 
-    public func openURL(_ url: URL) async throws -> DesktopResult { .fail("Opening web pages isn't supported here.") }
+    public func openURL(_ link: WebLink) async throws -> DesktopResult {
+        .fail("Opening web pages isn't supported here.")
+    }
 
     public func describeFocus() -> FocusInfo? { nil }
+
+    public func describeDefaultButton() -> DefaultButtonInfo { .unknown }
+
+    public func appName(_ window: WindowInfo) -> String? { nil }
 
     public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlatform) }
 }

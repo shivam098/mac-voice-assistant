@@ -5,9 +5,11 @@ import ThumbFreeCore
 /// which windows it may type into, and what needs a "yes" first. What the places, button words, program files and keys
 /// mean depends on the platform (`BrainPlatform`), which every such check takes.
 ///
-/// Plans name keys the C# core's way, as on Windows, on every platform: the prompt is Windows', for parity. On Windows
-/// a chord is pressed as named. On the Mac it is pressed as its Mac chord (`pressedChord`), and it is refused, or needs
-/// a "yes", if Windows' rules say so for the chord as named or the Mac's say so for the Mac chord. The Mac chords:
+/// Plans name keys the C# core's way, as on Windows, on every platform: the prompt is Windows', for parity.
+/// `keyPress` judges a chord once and returns the exact keys to press with the verdict, so what is pressed is always
+/// what was judged. On Windows a chord is pressed as named. On the Mac it is pressed as its Mac chord, and it is
+/// refused, or needs a "yes", if Windows' rules say so for the chord as named or the Mac's say so for the Mac chord.
+/// The Mac chords:
 /// - a `ShortcutKeys` shortcut is the Mac's: Ctrl+Y is ⇧⌘Z, Alt+Left ⌘[, Alt+Right ⌘], Alt+Up ⌘↑, F5 ⌘R, Ctrl+Tab
 ///   stays ⌃Tab and Ctrl+Backspace is ⌥⌫; Win+Up (maximize) has no Mac key;
 /// - Alt+F4 and Ctrl+F4 are ⌘W, Ctrl+F5 ⇧⌘R, F11 ⌃⌘F, Win+Down ⌘M and Win+M ⌥⌘M;
@@ -18,12 +20,15 @@ import ThumbFreeCore
 ///
 /// The Mac refuses ⌘Space and ⌥⌘Space (Spotlight, Finder's search), ⌘Q and ⌥⌘Q (quit), ⇧⌘Q and ⌥⇧⌘Q (log out),
 /// ⌃⌘Q (lock the screen), ⌥⌘⎋ and ⌥⇧⌘⎋ (force quit), ⌘⌫ and ⌥⌘⌫ (delete), ⇧⌘⌫ and ⌥⇧⌘⌫ (empty the Trash), ⌘D
-/// (Don't Save), ⌘↓ with any other modifiers (open, in Finder and file dialogs), ⌘F5 and ⌥⌘F5 (VoiceOver and the
+/// (Don't Save), ⌘↓ with any other modifiers (open, in Finder and file dialogs), ⇧⌘3, ⇧⌘4, ⇧⌘5 and ⇧⌘6 with any
+/// other modifiers (screenshots, which Windows' rules never allow either), ⌘F5 and ⌥⌘F5 (VoiceOver and the
 /// accessibility shortcuts), ⌃F2, ⌃F3 and ⌃F8 (the menu bar, the Dock and the status menus) and the clipboard's ⌘C,
-/// ⌘X, ⌘V, ⇧⌘V, ⌥⌘V, ⌥⇧⌘V and ⌥⌘C. It asks before ⌘W, ⌥⌘W and ⇧⌘W (closing), ⇧⌘D (Mail's Send), Delete (⌦) with any
+/// ⌘X, ⌘V, ⇧⌘V, ⌥⌘V, ⌥⇧⌘V and ⌥⌘C. It asks before any ⌘ chord on W (closing), ⇧⌘D (Mail's Send), Delete (⌦) with any
 /// modifiers, and Backspace (⌫) with any modifiers unless the focus is an editable text box: elsewhere ⌫ deletes the
 /// selected message, note or event. So Win+D, Win+Down, Ctrl+Space, Ctrl+Alt+Esc and Ctrl+Backspace can't become ⌘D,
-/// ⌘↓, ⌘Space, ⌥⌘⎋ or ⌘⌫. (The keys pressed are named as `ShortcutKeys` says the desktop presses them.)
+/// ⌘↓, ⌘Space, ⌥⌘⎋ or ⌘⌫. (The keys pressed are named as `ShortcutKeys` says the desktop presses them.) On the Mac
+/// Return also presses the front window's default button, whatever has the focus, so the interaction controller
+/// judges that button before a key that submits (`JarvisDesktop.describeDefaultButton`).
 public enum BrainSafety {
     /// Longer text needs a "yes" first.
     public static let maxTypedWithoutAsking = 200
@@ -165,16 +170,32 @@ public enum BrainSafety {
         return (modifierOrder.filter { modifiers.contains($0) } + [pressed]).joined(separator: "+")
     }
 
+    /// How `platform` presses `chord` (a plan's keys, as `normalizeChord` writes them), judged once: the exact keys to
+    /// press and the verdict on them. The interaction controller presses `keys` of the result and nothing else.
+    public static func keyPress(_ chord: String, _ platform: BrainPlatform) -> BrainKeyPress {
+        guard platform.kind == .mac else {
+            return BrainKeyPress(
+                named: chord, keys: chord, refusal: windowsRefusalReason(chord), focusDecides: false, kind: .windows)
+        }
+
+        let keys = macChord(chord)
+        var refusal = windowsRefusalReason(chord)
+        if refusal == nil {
+            if let keys {
+                refusal = macRefusalReason(keys)
+            } else {
+                refusal = "a Mac has no key for it"
+            }
+        }
+
+        let focusDecides = keys.map { DotNet.ordinalEquals(lastPiece($0), "Backspace") } ?? false
+        return BrainKeyPress(named: chord, keys: keys, refusal: refusal, focusDecides: focusDecides, kind: .mac)
+    }
+
     /// Why the brain never presses `chord` (a plan's keys, as `normalizeChord` writes them), or nil if it may. On the
     /// Mac, also why it never presses the chord's Mac keys, or that there are none.
     public static func refusalReason(_ chord: String, _ platform: BrainPlatform) -> String? {
-        if let reason = windowsRefusalReason(chord) {
-            return reason
-        }
-
-        guard platform.kind == .mac else { return nil }
-        guard let mac = macChord(chord) else { return "a Mac has no key for it" }
-        return macRefusalReason(mac)
+        keyPress(chord, platform).refusal
     }
 
     /// Win shortcuts other than window arranging (Win+R, Win+X, the Start menu…), Ctrl+Esc, clipboard and menu keys;
@@ -183,27 +204,14 @@ public enum BrainSafety {
         refusalReason(chord, platform) != nil
     }
 
-    /// Whether pressing `chord` needs a "yes" first. `focus` is what has the focus, nil if it wasn't read or isn't
-    /// known; read it first where `focusDecides` (on the Mac, Backspace asks unless the focus is an editable text box).
+    /// Whether pressing `chord` needs a "yes" first (`BrainKeyPress.needsConfirmation`).
     public static func needsConfirmation(_ chord: String, _ platform: BrainPlatform, focus: FocusInfo?) -> Bool {
-        if confirmChords.contains(chord) || altAccessKey.isMatch(chord) {
-            return true
-        }
-
-        guard platform.kind == .mac, let mac = macChord(chord) else { return false }
-        return macNeedsConfirmation(mac, focus: focus)
+        keyPress(chord, platform).needsConfirmation(focus: focus)
     }
 
-    /// Whether `needsConfirmation` depends on what has the focus: on the Mac, for a Backspace.
-    public static func focusDecides(_ chord: String, _ platform: BrainPlatform) -> Bool {
-        guard platform.kind == .mac, let mac = macChord(chord) else { return false }
-        return DotNet.ordinalEquals(lastPiece(mac), "Backspace")
-    }
-
-    /// The keys to press for `chord`: on Windows the chord as named; on the Mac its Mac chord (in `BrainSafety`'s
-    /// list), or nil when the Mac has no key for it, and `refusalReason` refuses it.
-    public static func pressedChord(_ chord: String, _ platform: BrainPlatform) -> String? {
-        platform.kind == .mac ? macChord(chord) : chord
+    /// The C#'s keys that need a "yes", on the chord as named: closing, quitting and deleting keys, and Alt+letter.
+    static func windowsNeedsConfirmation(_ chord: String) -> Bool {
+        confirmChords.contains(chord) || altAccessKey.isMatch(chord)
     }
 
     /// Enter, Space, Alt+S or Enter with modifiers: they submit what's in a box or press the focused button. Judged on
@@ -305,18 +313,26 @@ public enum BrainSafety {
             return reason
         }
 
+        let key = lastPiece(macChord)
+        let modifiers = pieces(macChord).dropLast()
+        let command = NetText.contains(Array(modifiers), "Cmd")
+
         // ⌘↓, with any other modifiers, opens the selected item in Finder and in file dialogs.
-        let opens = DotNet.ordinalEquals(lastPiece(macChord), "Down") && NetText.contains(pieces(macChord), "Cmd")
-        return opens ? "it opens the selected file" : nil
+        if command && DotNet.ordinalEquals(key, "Down") {
+            return "it opens the selected file"
+        }
+
+        // ⇧⌘3 to ⇧⌘6, with any other modifiers, take screenshots or open the screenshot tools.
+        let shift = NetText.contains(Array(modifiers), "Shift")
+        return command && shift && ["3", "4", "5", "6"].contains(key) ? "it takes screenshots" : nil
     }
 
-    private static let macConfirmChords = IgnoreCaseSet(["Cmd+W", "Alt+Cmd+W", "Shift+Cmd+W", "Shift+Cmd+D"])
-
-    /// Whether `macChord` (a Mac chord) needs a "yes" first on the Mac: closing, Mail's Send, Delete, and Backspace
-    /// unless `focus` is an editable text box.
+    /// Whether `macChord` (a Mac chord) needs a "yes" first on the Mac: any ⌘ chord on W (closing), Mail's Send,
+    /// Delete, and Backspace unless `focus` is an editable text box.
     static func macNeedsConfirmation(_ macChord: String, focus: FocusInfo?) -> Bool {
         let key = lastPiece(macChord)
-        return macConfirmChords.contains(macChord) || DotNet.ordinalEquals(key, "Delete")
+        let closes = DotNet.ordinalEquals(key, "W") && NetText.contains(pieces(macChord), "Cmd")
+        return closes || DotNet.equalsOrdinalIgnoreCase(macChord, "Shift+Cmd+D") || DotNet.ordinalEquals(key, "Delete")
             || (DotNet.ordinalEquals(key, "Backspace") && focus?.editable != true)
     }
 
@@ -481,5 +497,42 @@ public enum BrainSafety {
 
     private static func isAsciiLetterOrDigit(_ c: Unicode.Scalar) -> Bool {
         ("a"..."z").contains(c) || ("A"..."Z").contains(c) || ("0"..."9").contains(c)
+    }
+}
+
+/// A chord a plan names, as one platform presses it and judged once (`BrainSafety.keyPress`). `keys` is what the
+/// desktop is asked to press, and the verdict is of the chord as named (Windows' rules) and of `keys` (the Mac's), so
+/// what is pressed is always what was judged.
+public struct BrainKeyPress: Equatable, Sendable {
+    /// The chord as the plan names it, as `normalizeChord` writes it: Windows' keys on every platform.
+    public let named: String
+
+    /// The platform's keys for it: `named` on Windows, its Mac chord on the Mac; nil when the Mac has no key for it
+    /// (then it's refused).
+    public let keys: String?
+
+    /// Why it's never pressed, or nil if it may be.
+    public let refusal: String?
+
+    /// Whether `needsConfirmation` depends on what has the focus (on the Mac, for a Backspace): read it first.
+    public let focusDecides: Bool
+
+    let kind: BrainPlatform.Kind
+
+    /// The keys to press, or nil when it's refused. A "yes" may still be needed first (`needsConfirmation`).
+    public var pressable: String? { refusal == nil ? keys : nil }
+
+    /// How the messages name it: the platform's keys, else the chord as named.
+    public var shown: String { keys ?? named }
+
+    /// Whether pressing it needs a "yes" first. `focus` is what has the focus, nil if it wasn't read or isn't known;
+    /// on the Mac, Backspace asks unless the focus is an editable text box.
+    public func needsConfirmation(focus: FocusInfo?) -> Bool {
+        if BrainSafety.windowsNeedsConfirmation(named) {
+            return true
+        }
+
+        guard kind == .mac, let keys else { return false }
+        return BrainSafety.macNeedsConfirmation(keys, focus: focus)
     }
 }

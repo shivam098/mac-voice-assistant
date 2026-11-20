@@ -6,6 +6,78 @@ private let chrome = WindowInfo(
     handle: 10, processId: 1, processName: "chrome", title: "Lofi beats - YouTube - Google Chrome")
 private let edge = WindowInfo(
     handle: 20, processId: 2, processName: "msedge", title: "Work items - Boards - Microsoft\u{200B} Edge")
+private let copilot = WindowInfo(handle: 30, processId: 3, processName: "github", title: "GitHub Copilot")
+
+/// NavigationTests.cs's desktop: tabs, and clickable elements and text boxes by window handle.
+private final class NavDesktop: JarvisDesktop {
+    var foreground: WindowInfo?
+    var actions: [String] = []
+    var tabs: [BrowserTab] = []
+    var clickable: [Int: [UiElement]] = [:]
+    var boxes: [Int: [UiElement]] = [:]
+    var apps: [String: WindowInfo] = [:]
+    var brainPlatform: BrainPlatform { .windows }
+
+    /// Scans that return nothing before the page's elements appear (a just-activated browser tab).
+    var emptyScansBeforePage = 0
+    private(set) var clickableScans = 0
+
+    func foregroundWindow() -> WindowInfo? { foreground }
+
+    func openOrActivate(_ app: AppEntry, newWindow: Bool) async throws -> DesktopResult {
+        actions.append("open:\(app.name)")
+        foreground = apps[app.name]
+        return .ok("ok", window: foreground)
+    }
+
+    func prepareTextTarget(_ window: WindowInfo, profile: AppEntry?) async throws -> TextTargetResult {
+        actions.append("prepare:\(window.processName)")
+        return TextTargetResult(success: true, message: "", hasTrailingText: false, focusIsEditable: false)
+    }
+
+    func focusSearchBox(_ window: WindowInfo) async throws -> TextTargetResult {
+        TextTargetResult(success: true, message: "")
+    }
+
+    func checkFocusedField() -> AssistantFieldCheck { .safe }
+
+    func focusedTextEndsWithNonWhitespace() -> Bool? { false }
+
+    func typeText(_ text: String) throws { actions.append("type:\(text)") }
+
+    func pressKeys(_ chord: String) throws { actions.append("keys:\(chord)") }
+
+    func backspace(_ count: Int) throws { actions.append("backspace:\(count)") }
+
+    func windowRect(_ window: WindowInfo) -> ScreenRect? { ScreenRect(x: 0, y: 0, width: 1800, height: 1200) }
+
+    func listClickable(_ window: WindowInfo) async throws -> [UiElement] {
+        clickableScans += 1
+        return clickableScans <= emptyScansBeforePage ? [] : clickable[window.handle] ?? []
+    }
+
+    func listTextBoxes(_ window: WindowInfo) async throws -> [UiElement] { boxes[window.handle] ?? [] }
+
+    func listTabs() async throws -> [BrowserTab] { tabs }
+
+    func selectTab(_ tab: BrowserTab) async throws -> DesktopResult {
+        actions.append("tab:\(tab.id)")
+        var shown = tab.window
+        shown.title = NameMatcher.cleanTabTitle(tab.title) + " - Google Chrome"
+        foreground = shown
+        return .ok("ok", window: shown)
+    }
+
+    func click(_ element: UiElement) async throws -> DesktopResult {
+        actions.append("click:\(element.id)")
+        return .ok("ok")
+    }
+
+    func focusTextBox(_ box: UiElement) async throws -> TextTargetResult {
+        actions.append("focus:\(box.id)")
+        return TextTargetResult(success: true, message: "", hasTrailingText: false, focusIsEditable: true)
+    }
+}
 
 /// The id of a single match, nil otherwise.
 private func singleId(_ resolution: Resolution<UiElement>) -> Int? {
@@ -28,9 +100,8 @@ private func isNoMatch<T>(_ resolution: Resolution<T>) -> Bool {
     return true
 }
 
-/// The name cleaning, matching, resolving and grammar cases of windows-voice-assistant
-/// tests/VoiceAssistant.Core.Tests/NavigationTests.cs. Its controller flows need the interaction controller and come
-/// with it.
+/// windows-voice-assistant tests/VoiceAssistant.Core.Tests/NavigationTests.cs: name cleaning, matching, resolving
+/// and the grammar, then the controller's flows: tabs, clicking by name, numbers, confirmations and text boxes.
 final class NavigationTests: XCTestCase {
     // MARK: Name cleaning (inputs are real accessibility names seen on the development laptop)
 
@@ -389,5 +460,288 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual([.selectTab], woken.map { $0.kind })
         XCTAssertNotNil(parser.parse("click New", .dictation).dictationText)
         XCTAssertNotNil(parser.parse("two", .dictation).dictationText)
+    }
+
+    // MARK: Controller flows
+
+    private static let chromeApp = AppEntry(
+        name: "Google Chrome", aliases: ["chrome"], launch: "chrome.exe", processNames: ["chrome"],
+        searchKeys: "Ctrl+L", addressBarKeys: "Ctrl+L")
+    private static let copilotApp = AppEntry(
+        name: "GitHub Copilot", launch: "copilot", processNames: ["github"], windowTitleContains: "GitHub Copilot")
+
+    private var desktop: NavDesktop!
+    private var controller: InteractionController!
+    private var statuses: StatusLog!
+    private var badges: Recorder<[ChoiceBadge]?>!
+    private var clock: TestClock!
+
+    override func setUp() {
+        super.setUp()
+        let fixture = makeFixture()
+        desktop = fixture.desktop
+        controller = fixture.controller
+        statuses = fixture.statuses
+        badges = fixture.badges
+        clock = fixture.clock
+    }
+
+    /// The C# test class's constructor, also for each case of a theory.
+    private func makeFixture() -> (
+        desktop: NavDesktop, controller: InteractionController, statuses: StatusLog, badges: Recorder<[ChoiceBadge]?>,
+        clock: TestClock
+    ) {
+        let desktop = NavDesktop()
+        desktop.apps["Google Chrome"] = chrome
+        desktop.apps["GitHub Copilot"] = copilot
+        desktop.tabs = tabs
+        desktop.clickable[copilot.handle] = copilotSidebar
+        desktop.boxes[copilot.handle] = [
+            UiElement(id: 900, name: "Message", role: .textBox, rect: rect(400, 1100, 1000, 60)),
+        ]
+        desktop.boxes[chrome.handle] = [
+            UiElement(id: 910, name: "Address and search bar", role: .textBox, rect: rect(200, 50, 1200, 30)),
+            UiElement(id: 911, name: "Search", role: .textBox, rect: rect(500, 120, 600, 40)),
+        ]
+        let clock = TestClock(utc(2026, 11, 5, 12))
+        let controller = InteractionController(
+            desktop, AppCatalog([Self.chromeApp, Self.copilotApp]), CommandParser(),
+            options: ControllerOptions(wakeWordEnabled: false, clock: { clock.now }))
+        let statuses = StatusLog()
+        let badges = Recorder<[ChoiceBadge]?>()
+        controller.onStatus = statuses.add
+        controller.onChoicesChanged = badges.add
+        controller.setListening(true)
+        desktop.foreground = copilot
+        return (desktop, controller, statuses, badges, clock)
+    }
+
+    private func say(_ text: String) async throws {
+        try await controller.handleTranscript(text, 0.9)
+    }
+
+    /// The numbers shown last (C#'s `_badges[^1]`, which must be a list).
+    private func shownBadges(file: StaticString = #filePath, line: UInt = #line) throws -> [ChoiceBadge] {
+        try XCTUnwrap(try XCTUnwrap(badges.all.last, file: file, line: line), file: file, line: line)
+    }
+
+    private func addDeleteSession() {
+        desktop.clickable[copilot.handle]?.append(
+            UiElement(id: 50, name: "Delete session", role: .button, rect: rect(900, 400)))
+    }
+
+    func testClickInAJustActivatedBrowserTabWaitsForThePage() async throws {
+        desktop.foreground = chrome
+        desktop.clickable[chrome.handle] = [UiElement(id: 500, name: "Library", role: .button, rect: rect(20, 300))]
+        desktop.emptyScansBeforePage = 2
+        try await say("Click Library.")
+        XCTAssertEqual(["click:500"], desktop.actions)
+        XCTAssertEqual(3, desktop.clickableScans)
+    }
+
+    func testClickOutsideBrowsersDoesNotRescan() async throws {
+        try await say("Click Settings.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertEqual(1, desktop.clickableScans)
+    }
+
+    func testOpenChromeFirstTabThenStartTyping() async throws {
+        try await say("Open Chrome.")
+        try await say("Go to the first tab.")
+        XCTAssertEqual(["open:Google Chrome", "tab:101"], desktop.actions)
+        XCTAssertEqual("Google Chrome › WhatsApp", controller.place)
+        XCTAssertEqual("Google Chrome › WhatsApp", statuses.last?.place)
+    }
+
+    func testYouTubeTabThenItsSearchBox() async throws {
+        try await say("Go to the tab where YouTube is open.")
+        try await say("Start typing.")
+        XCTAssertEqual(["tab:102", "prepare:chrome", "focus:911"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+        XCTAssertEqual("Google Chrome › Lofi beats - YouTube › Search", controller.place)
+        try await say("lofi music")
+        XCTAssertTrue(desktop.actions.contains("type:Lofi music"))
+    }
+
+    func testStartTypingInYouTubeDoesBoth() async throws {
+        try await say("Start typing in YouTube.")
+        XCTAssertEqual(["tab:102", "prepare:chrome", "focus:911"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testCopilotSwitchClickNewOnTheLeftThenType() async throws {
+        desktop.foreground = chrome
+        try await say("Switch to GitHub Copilot.")
+        try await say("Click on New on the left.")
+        try await say("Start typing.")
+        XCTAssertEqual(["open:GitHub Copilot", "click:2", "prepare:github", "focus:900"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+        XCTAssertEqual(copilot, controller.target)
+    }
+
+    func testBrowserPageWithTwoUnnamedBoxesAsksWhich() async throws {
+        var mail = chrome
+        mail.handle = 11
+        mail.title = "Lab Inbox - Mail - Google Chrome"
+        desktop.foreground = mail
+        desktop.boxes[mail.handle] = [
+            UiElement(id: 920, name: "Address and search bar", role: .textBox, rect: rect(200, 50, 1200, 30)),
+            UiElement(id: 921, name: "To", role: .textBox, rect: rect(100, 200, 400, 30)),
+            UiElement(id: 922, name: "Subject", role: .textBox, rect: rect(100, 250, 400, 30)),
+        ]
+        try await say("Start typing.")
+        XCTAssertEqual(2, try shownBadges().count)
+        XCTAssertEqual(.command, controller.mode)
+        try await say("Two.")
+        XCTAssertEqual(["prepare:chrome", "focus:922"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testBrowserPageWithoutBoxesUsesTheAddressBar() async throws {
+        var article = chrome
+        article.handle = 12
+        article.title = "Some article - Google Chrome"
+        desktop.foreground = article
+        desktop.boxes[article.handle] = [
+            UiElement(id: 930, name: "Address and search bar", role: .textBox, rect: rect(200, 50, 1200, 30)),
+        ]
+        try await say("Start typing.")
+        XCTAssertEqual(["prepare:chrome", "keys:Ctrl+L"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testAmbiguousClickShowsNumbersAndANumberClicks() async throws {
+        try await say("Click New.")
+        XCTAssertFalse(desktop.actions.contains { $0.hasPrefix("click:") })
+        XCTAssertEqual(2, try shownBadges().count)
+        try await say("Two.")
+        XCTAssertEqual(["click:8"], desktop.actions)
+        XCTAssertNil(try XCTUnwrap(badges.all.last))
+    }
+
+    func testShowNumbersThenPickATextBoxStartsTyping() async throws {
+        try await say("Show numbers.")
+        let messages = try shownBadges().filter { $0.label == "Message" }
+        XCTAssertEqual(1, messages.count)
+        let message = try XCTUnwrap(messages.first)
+        try await say(String(message.number))
+        XCTAssertEqual(["focus:900"], desktop.actions)
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testChoicesExpireAndOtherCommandsClearThem() async throws {
+        try await say("Click New.")
+        clock.advance(31)
+        controller.tick()
+        XCTAssertNil(try XCTUnwrap(badges.all.last))
+        try await say("Two.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertTrue(NetText.containsOrdinalIgnoreCase(statuses.last?.message ?? "", "nothing to choose"))
+    }
+
+    func testDestructiveClickWaitsForYes() async throws {
+        addDeleteSession()
+        try await say("Click delete session.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertTrue(NetText.containsOrdinalIgnoreCase(statuses.last?.message ?? "", "say “yes”"))
+        try await say("Yes.")
+        XCTAssertEqual(["click:50"], desktop.actions)
+    }
+
+    func testDestructiveClickIsDroppedOnNoOrAnotherCommand() async throws {
+        addDeleteSession()
+        try await say("Click delete session.")
+        try await say("No.")
+        try await say("Yes.")
+        XCTAssertEqual([], desktop.actions)
+    }
+
+    func testClickRefusesWhenFocusMovedBeforeConfirmation() async throws {
+        addDeleteSession()
+        try await say("Click delete session.")
+        desktop.foreground = chrome
+        try await say("Yes.")
+        XCTAssertEqual([], desktop.actions)
+    }
+
+    func testGoToAButtonNameClicksItWhenNoAppOrTabMatches() async throws {
+        try await say("Go to pull requests.")
+        XCTAssertEqual(["click:4"], desktop.actions)
+    }
+
+    func testUnknownGoToReportsWhatWasTried() async throws {
+        try await say("Go to settings.")
+        XCTAssertEqual([], desktop.actions)
+        XCTAssertTrue(statuses.last?.message.contains("app, tab or button") == true)
+    }
+
+    func testWakeWordNavigationWhileTypingStopsTypingFirst() async throws {
+        try await say("Start typing.")
+        XCTAssertEqual(.dictation, controller.mode)
+        desktop.actions.removeAll()
+        try await controller.handleTranscript("Hey Jarvis, go to the first tab", 0.9)
+        XCTAssertEqual(["tab:101"], desktop.actions)
+        XCTAssertEqual(.command, controller.mode)
+        try await say("this should not be typed")
+        XCTAssertFalse(desktop.actions.contains { $0.hasPrefix("type:") })
+    }
+
+    func testWakeWordShortcutsWhileTypingStopTyping() async throws {
+        let cases = [
+            ("Hey Jarvis, next tab", "keys:Ctrl+Tab"), ("Hey Jarvis, go back", "keys:Alt+Left"),
+            ("Hey Jarvis, close tab", "keys:Ctrl+W"),
+        ]
+        for (phrase, action) in cases {
+            let fixture = makeFixture()
+            try await fixture.controller.handleTranscript("Start typing.", 0.9)
+            fixture.desktop.actions.removeAll()
+            try await fixture.controller.handleTranscript(phrase, 0.9)
+            XCTAssertEqual([action], fixture.desktop.actions, phrase)
+            XCTAssertEqual(.command, fixture.controller.mode, phrase)
+            try await fixture.controller.handleTranscript("send", 0.9)
+            XCTAssertFalse(fixture.desktop.actions.contains("keys:Enter"), phrase)
+        }
+    }
+
+    func testPressKeyWhileTypingKeepsTyping() async throws {
+        try await say("Start typing.")
+        try await say("press tab")
+        XCTAssertEqual(.dictation, controller.mode)
+    }
+
+    func testChoicesOfferedWhileTypingLeaveTypingSoNumbersAreNotTyped() async throws {
+        desktop.boxes[copilot.handle]?.append(
+            UiElement(id: 901, name: "Message", role: .textBox, rect: rect(400, 100, 600, 40)))
+        try await say("Start typing.")
+        desktop.actions.removeAll()
+        try await controller.handleTranscript("Hey Jarvis, start typing in the message box", 0.9)
+        XCTAssertEqual(.command, controller.mode)
+        try await say("Two.")
+        XCTAssertFalse(desktop.actions.contains { $0.hasPrefix("type:") })
+        XCTAssertEqual(1, desktop.actions.filter { $0.hasPrefix("focus:") }.count)
+    }
+
+    func testUnrelatedSpeechDropsAPendingConfirmation() async throws {
+        addDeleteSession()
+        try await say("Click delete session.")
+        try await say("What a nice day it is outside.")
+        try await say("Yeah.")
+        XCTAssertEqual([], desktop.actions)
+    }
+
+    func testEverydayWordsInStandbyStaySilent() async throws {
+        let controller = InteractionController(
+            desktop, AppCatalog([Self.chromeApp, Self.copilotApp]), CommandParser())
+        let statuses = StatusLog()
+        controller.setListening(true)
+        controller.onStatus = statuses.add
+        for word in ["Yes.", "No.", "Two.", "Yeah."] {
+            try await controller.handleTranscript(word, 0.9)
+        }
+
+        XCTAssertEqual([], statuses.messages)
+        try await controller.handleTranscript("Go to the first tab.", 0.9)
+        XCTAssertEqual(1, statuses.all.count)
+        XCTAssertTrue(statuses.last?.message.contains("first") == true)
     }
 }

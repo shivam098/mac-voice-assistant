@@ -55,4 +55,33 @@ final class ShortcutKeysTests: XCTestCase {
             XCTAssertFalse(mac.contains("Win"), "\(shortcut)")
         }
     }
+
+    /// Every chord the interaction controller presses on the Mac is in the grammar `ShortcutKeys` documents for the
+    /// desktop: the shortcut and "press …" commands', the keys an exact edit moves and selects with, and the default
+    /// send and new line keys of an app. (`BrainKeysTests` checks the brain's, and `BrainControllerMacTests`' desktop
+    /// every chord it is asked to press.)
+    func testEveryChordTheControllerPressesOnTheMacParses() {
+        let phrases = [
+            "press enter", "press return", "press tab", "press escape", "press backspace", "press delete",
+            "press space", "press up", "press down", "press left", "press right", "press the up arrow key",
+            "press down arrow", "press left arrow", "press right arrow", "press page up", "press page down",
+            "press home", "press end", "press shift tab", "select all", "copy", "paste", "cut", "undo", "redo", "save",
+            "new tab", "close tab", "next tab", "previous tab", "go back", "go forward", "parent folder", "refresh",
+            "scroll down", "scroll up",
+        ]
+        for phrase in phrases {
+            guard let chord = keys(phrase, .mac) else {
+                XCTFail("\(phrase): no keys")
+                continue
+            }
+
+            XCTAssertTrue(ChordGrammar.parses(chord, mac: true), "\(phrase): \(chord)")
+        }
+
+        let app = AppEntry(name: "App", launch: "app")
+        let edits = ["Left", "Shift+Left", "Right", ShortcutKeys.mac.deleteWordBefore]
+        for chord in edits + [app.submitKeys, app.newLineKeys] {
+            XCTAssertTrue(ChordGrammar.parses(chord, mac: true), chord)
+        }
+    }
 }

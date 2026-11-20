@@ -72,10 +72,11 @@ final class BrainPlatformTests: XCTestCase {
             ("at.obdev.LaunchBar", true), ("com.apple.ScriptEditor2", true), ("com.apple.Automator", true),
             ("com.apple.shortcuts", true), ("com.apple.systempreferences", true), ("com.apple.SecurityAgent", true),
             ("com.apple.loginwindow", true), ("com.apple.ActivityMonitor", true), ("com.apple.DiskUtility", true),
-            ("com.apple.keychainaccess", true), ("com.apple.finder", true), ("com.apple.Safari", false),
-            ("com.apple.Notes", false), ("com.apple.TextEdit", false), ("com.apple.mail", false),
-            ("com.microsoft.VSCode", false), ("com.tinyspeck.slackmacgap", false), ("WindowsTerminal", false),
-            ("explorer", false), ("cmd", false),
+            ("com.apple.keychainaccess", true), ("com.apple.Passwords", true), ("com.apple.finder", true),
+            ("dev.warp.Warp-Preview", true), ("com.termius-dmg.mac", true), ("com.raphaelamorim.rio", true),
+            ("com.apple.Safari", false), ("com.apple.Notes", false), ("com.apple.TextEdit", false),
+            ("com.apple.mail", false), ("com.microsoft.VSCode", false), ("com.tinyspeck.slackmacgap", false),
+            ("WindowsTerminal", false), ("explorer", false), ("cmd", false),
         ]) { isCommand($0, .mac) }
     }
 
@@ -108,8 +109,10 @@ final class BrainPlatformTests: XCTestCase {
             ("org.mozilla.firefox", true), ("company.thebrowser.Browser", true), ("com.brave.Browser", true),
             ("com.operasoftware.Opera", true), ("com.vivaldi.Vivaldi", true), ("net.librewolf.librewolf", true),
             ("io.gitlab.librewolf-community.librewolf", true), ("net.waterfox.waterfox", true),
-            ("one.ablaze.floorp", true), ("net.mullvad.mullvadbrowser", true), ("com.apple.finder", false),
-            ("com.apple.Terminal", false), ("msedge", false),
+            ("one.ablaze.floorp", true), ("net.mullvad.mullvadbrowser", true), ("com.openai.atlas", true),
+            ("ai.perplexity.comet", true), ("com.sigmaos.sigmaos.macos", true), ("app.zen-browser.zen", true),
+            ("org.mozilla.com.zen.browser", true), ("com.apple.finder", false), ("com.apple.Terminal", false),
+            ("msedge", false),
         ]) { isBrowser($0, .mac) }
     }
 
