@@ -267,10 +267,13 @@ public final class BoardStore: Board, @unchecked Sendable {
         }
     }
 
-    /// Changes the notes and saves them, under the lock; then tells the handlers.
+    /// Changes the notes and saves them, under the lock; then tells the handlers. The change is made on a copy, so code
+    /// it runs under the lock (the clock) may read the notes meanwhile, as in C#.
     private func mutate(_ change: (inout [BoardItem]) -> Void) throws {
         let notify = try locked { () throws -> [() -> Void] in
-            change(&stored)
+            var notes = stored
+            change(&notes)
+            stored = notes
             try save()
             return handlers
         }
