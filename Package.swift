@@ -38,6 +38,7 @@ let package = Package(
                 .product(name: "ThumbFreeSpeech", package: "thumbfree-mac"),
             ]),
         // Lowercase tests/, as in the ThumbFree repos.
+        .testTarget(name: "VoiceAssistantBoardTests", dependencies: ["VoiceAssistantBoard"], path: "tests/VoiceAssistantBoardTests"),
         .testTarget(name: "VoiceAssistantCoreTests", dependencies: ["VoiceAssistantCore"], path: "tests/VoiceAssistantCoreTests"),
     ]
 )
