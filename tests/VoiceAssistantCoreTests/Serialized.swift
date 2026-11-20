@@ -34,38 +34,7 @@ enum Serialized {
         return p.commands.map(command).joined(separator: "\u{2}") + "\u{3}" + flags.joined(separator: "|")
     }
 
-    static func plan(_ p: EditPlan?) -> String {
-        guard let p else { return "~" }
-        return "\(p.keepAfter)|\(p.delete)|\(p.insert)|\(p.textAfterEdit)|\(p.removed)"
-    }
-
     static func find(_ found: (start: Int, length: Int)?) -> String { found.map { "\($0.start),\($0.length)" } ?? "~" }
-
-    static func app(_ resolution: AppResolution) -> String {
-        switch resolution {
-        case .found(let app): return "f" + app.name
-        case .ambiguous(let names): return "a" + names.joined(separator: ",")
-        case .notFound: return "n"
-        }
-    }
-
-    static func resolution(_ r: Resolution<UiElement>) -> String {
-        switch r {
-        case .single(let element): return "s\(element.id)"
-        case .ambiguous(let elements): return "a" + elements.map { String($0.id) }.joined(separator: ",")
-        case .noMatch: return "n"
-        }
-    }
-
-    static func resolution(_ r: Resolution<BrowserTab>) -> String {
-        switch r {
-        case .single(let tab): return "s\(tab.id)"
-        case .ambiguous(let tabs): return "a" + tabs.map { String($0.id) }.joined(separator: ",")
-        case .noMatch: return "n"
-        }
-    }
-
-    static func ids(_ elements: [UiElement]) -> String { elements.map { String($0.id) }.joined(separator: ",") }
 
     /// FNV-1a, 64 bits, over UTF-8, as 16 hex digits.
     static func hash(_ text: String) -> String {
