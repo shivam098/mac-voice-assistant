@@ -50,8 +50,9 @@ public struct TextTargetResult: Equatable, Sendable {
 }
 
 /// The focused control: its accessible name ("Search", possibly empty), whether it takes text, and whether it is part
-/// of a web page. In a browser anything outside the page is the browser's own address, search or find bar.
-/// `addressBar`: the control itself says it is a browser's address bar, in browsers the app doesn't know too.
+/// of a web page (`inPage`: it has a UI Automation Document ancestor on Windows, an `AXWebArea` ancestor on the
+/// Mac). In a browser anything outside the page is the browser's own address, search or find bar. `addressBar`: the
+/// control itself says it is a browser's address bar, in browsers the app doesn't know too.
 public struct FocusInfo: Equatable, Sendable {
     public var name: String
     public var editable: Bool
@@ -129,6 +130,10 @@ public struct DesktopWindow: Equatable, Sendable {
 /// (VoiceAssistantMac), faked in tests. Methods that wait can throw `CancellationError` when their task is cancelled,
 /// as C#'s take a `CancellationToken`; typing and keys throw what the platform reports, and typing stops there.
 public protocol JarvisDesktop: AnyObject {
+    /// The window that has the keyboard focus. On the Mac its `processName` is the bundle identifier of the app that
+    /// has the keyboard focus (the system-wide Accessibility element's `AXFocusedApplication`), not
+    /// `NSWorkspace.frontmostApplication`: Spotlight, Raycast, Alfred and LaunchBar show panels without activating
+    /// their app, so the frontmost app would be the one behind the panel. The brain's checks (`brainPlatform`) read it.
     func foregroundWindow() -> WindowInfo?
 
     /// Opens or activates the app. With `newWindow`, an already-running app with `AppEntry.newWindowKeys` gets a fresh
@@ -198,6 +203,14 @@ public protocol JarvisDesktop: AnyObject {
 
     /// What has the keyboard focus in the front window, for the brain's typing and Enter checks; nil if unknown.
     func describeFocus() -> FocusInfo?
+
+    /// The platform's meanings for the brain's limits: where it never types, the browsers and the file manager, the
+    /// button words, program files and keys. No default, so a desktop can't get another platform's by leaving it out.
+    var brainPlatform: BrainPlatform { get }
+
+    /// A window where text or keys can run a command: the brain never types or presses keys there. Default:
+    /// `BrainSafety.isCommandWindow` with `brainPlatform`; a platform adds the windows it recognises.
+    func isCommandWindow(_ window: WindowInfo) -> Bool
 }
 
 extension JarvisDesktop {
@@ -236,4 +249,6 @@ extension JarvisDesktop {
     public func openURL(_ url: URL) async throws -> DesktopResult { .fail("Opening web pages isn't supported here.") }
 
     public func describeFocus() -> FocusInfo? { nil }
+
+    public func isCommandWindow(_ window: WindowInfo) -> Bool { BrainSafety.isCommandWindow(window, brainPlatform) }
 }
