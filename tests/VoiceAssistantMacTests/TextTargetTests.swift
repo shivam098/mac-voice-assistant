@@ -1,4 +1,5 @@
 import ApplicationServices
+import ThumbFreeCore
 import VoiceAssistantCore
 import XCTest
 @testable import VoiceAssistantMac
@@ -55,7 +56,7 @@ final class TextTargetTests: XCTestCase {
     /// Nothing editable has the focus in a window without a profile: it's ready, and says so for the core to choose.
     func testWithoutAProfileTheFocusIsChecked() async throws {
         let rig = Rig()
-        let front = window(rig, [.textArea()], focus: button())
+        let front = window(rig, [FakeElement.textArea()], focus: button())
         let result = try await rig.desktop.prepareTextTarget(front, profile: nil)
         XCTAssertEqual(
             TextTargetResult(success: true, message: "", hasTrailingText: nil, focusIsEditable: false), result)
@@ -171,7 +172,7 @@ final class TextTargetTests: XCTestCase {
     /// Messages name the app as macOS does (Windows names the window by its title, which names the app there).
     func testSaysWhenThereIsNoSearchBox() async throws {
         let rig = Rig()
-        var front = window(rig, [.textField(name: "To")], focus: button())
+        var front = window(rig, [FakeElement.textField(name: "To")], focus: button())
         var result = try await rig.desktop.focusSearchBox(front)
         XCTAssertEqual(TextTargetResult(success: false, message: "I couldn't find a search box in TextEdit."), result)
 

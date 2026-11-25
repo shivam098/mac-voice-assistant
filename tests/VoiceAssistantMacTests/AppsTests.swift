@@ -1,5 +1,6 @@
 import ApplicationServices
 import Carbon.HIToolbox
+import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantCore
 import XCTest

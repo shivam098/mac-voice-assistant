@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantCore
 import XCTest
