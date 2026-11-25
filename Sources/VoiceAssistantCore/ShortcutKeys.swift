@@ -31,9 +31,11 @@ public enum Shortcut: CaseIterable, Sendable {
 /// - Modifiers, in this order: Ctrl (⌃), Alt (Option, ⌥ on the Mac), Shift (⇧), then Win (Windows) or Cmd (⌘).
 /// - The key: a letter or a digit, or "[" or "]", each pressed as the key that types it in the current keyboard
 ///   layout (as ThumbFreeMac's `PasteTyperSystem.keyCode(typing:)` finds V), so ⌘Z is the key that types "z" on an
-///   AZERTY keyboard too; or Enter, Tab, Esc, Space, Home, End, PageUp, PageDown, Up, Down, Left, Right, F1 to F24;
-///   or Backspace, which deletes backwards (⌫), and Delete, which deletes forwards (⌦), as on Windows. ThumbFreeMac's
-///   `Chord` reads "Delete" as ⌫ and has no letters, digits or brackets, so the Mac desktop can't use it unchanged.
+///   AZERTY keyboard too; or Enter, Tab, Esc, Space, Home, End, PageUp, PageDown, Up, Down, Left or Right; or
+///   Backspace, which deletes backwards (⌫), and Delete, which deletes forwards (⌦), as on Windows; or a function key:
+///   F1 to F24 on Windows, and F1 to F20 on the Mac, whose keyboards have no F21 to F24 (`BrainSafety.keyPress`
+///   refuses those there, so the desktop is never asked for them). ThumbFreeMac's `Chord` reads "Delete" as ⌫ and has
+///   no letters, digits or brackets, so the Mac desktop can't use it unchanged.
 ///
 /// Back and forward differ on the Mac: ⌘[ and ⌘] also change the indentation or list level in many apps (Notes, Mail,
 /// Pages, Xcode, VS Code), while on Windows Alt+← and Alt+→ do nothing in an editor. So with `mac`
@@ -45,7 +47,7 @@ public struct ShortcutKeys: Equatable, Sendable {
         /// Press these keys (Windows: Win+Up).
         case keys(String)
 
-        /// Zoom the window to fill the screen through Accessibility: no Mac shortcut does it.
+        /// Zoom the window to fill the screen through Accessibility (`JarvisDesktop.zoom`): no Mac shortcut does it.
         case zoomThroughAccessibility
     }
 

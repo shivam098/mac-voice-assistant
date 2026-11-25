@@ -269,7 +269,7 @@ extension InteractionController {
         case .typeText:
             return try await brainType(run, steps, index, confirmed: confirmed)
         case .press:
-            return try brainPress(run, steps, index, confirmed: confirmed)
+            return try await brainPress(run, steps, index, confirmed: confirmed)
         case .scroll:
             guard let scrolled = desktop.foregroundWindow() else {
                 report(.warning, "There's no window in front.", heard)
@@ -600,9 +600,10 @@ extension InteractionController {
     /// A key the model asked for. Plans name keys the Windows way (`BrainSafety` says why). The chord is judged once
     /// (`BrainSafety.keyPress`), and only the keys judged are pressed: on the Mac its Mac chord, which the messages
     /// name, judged by the Mac's rules too. Back and forward work only in a browser there, as for the voice commands,
-    /// and a key that submits is judged by the default button it would press too. The chords that change the tab or
-    /// page are known by their Windows names, as in the C#.
-    func brainPress(_ run: BrainRun, _ steps: [BrainStep], _ index: Int, confirmed: Bool) throws -> StepResult {
+    /// and a key that submits is judged by the default button it would press too. Windows' maximize keys zoom the
+    /// window there instead (`brainZoom`). The chords that change the tab or page are known by their Windows names, as
+    /// in the C#.
+    func brainPress(_ run: BrainRun, _ steps: [BrainStep], _ index: Int, confirmed: Bool) async throws -> StepResult {
         let heard = run.heard
         let platform = desktop.brainPlatform
         let named = Self.first(steps[index].target, steps[index].text)
@@ -612,6 +613,10 @@ extension InteractionController {
         }
 
         let press = BrainSafety.keyPress(chord, platform)
+        if press.zooms {
+            return try await brainZoom(heard)
+        }
+
         let shown = press.shown
         guard let toPress = press.pressable else {
             trace("brain: refused keys")
@@ -683,6 +688,26 @@ extension InteractionController {
         }
 
         report(.success, "Pressed \(shown).", heard)
+        return .done
+    }
+
+    /// Windows' maximize keys on the Mac (`BrainKeyPress.zooms`): the window in front, read as the step runs, is
+    /// zoomed instead and nothing is pressed, so the checks for keys and typing don't apply, as for a click. As a step
+    /// of the plan it keeps the brain's checks: the step and time limits, and after a "yes" the same window in front.
+    func brainZoom(_ heard: String) async throws -> StepResult {
+        guard let window = desktop.foregroundWindow() else {
+            report(.warning, "There's no window in front.", heard)
+            return .stop
+        }
+
+        let result = try await desktop.zoom(window)
+        trace("brain: window \(result.success ? "zoomed" : "not zoomed")")
+        if !result.success {
+            report(.warning, result.message, heard)
+            return .stop
+        }
+
+        report(.success, result.message, heard)
         return .done
     }
 

@@ -74,7 +74,9 @@ The porting guide's capability map is the plan. These are the points it leaves o
     name;
   - the window's **default button** (`AXDefaultButton`), because Return presses it whatever has the focus;
   - a chord presser for the core's Mac chords: letters typed by the current keyboard layout, `[` and `]`, "Delete" as
-    ⌦ and "Backspace" as ⌫ (ThumbFreeMac's chord reader handles only the new-line keys).
+    ⌦ and "Backspace" as ⌫ (ThumbFreeMac's chord reader handles only the new-line keys), and F1 to F20: the core never
+    asks for F21 to F24, which Macs don't have;
+  - a **zoom** for the window in front (`zoom`): the brain's plans maximize with Win+Up, which no Mac key does.
 - **The core's threading contract:** the app awaits each controller call before making the next, drops speech while
   the brain is running, and acts on `ControllerBusy` (a call that overlapped did nothing and says so).
 
@@ -93,7 +95,8 @@ The porting guide's capability map is the plan. These are the points it leaves o
     Finder and the login and password prompts are no-go places.
   - The prompt and plans still name keys as on Windows (the prompt is Windows' byte for byte, as measured). Each
     chord is translated to its Mac chord and judged as pressed: ⌘Space, ⌥⌘⎋, ⌘Q, ⇧⌘Q, ⌃⌘Q, Trash and screenshot
-    chords are refused, and ⌘W asks. The core presses only the chord it judged.
+    chords are refused, and ⌘W asks. The core presses only the chord it judged. Win+Up (maximize) zooms the window in
+    front instead; the other Win chords have no Mac key, and a Mac keyboard has no F21 to F24, so those are refused.
   - A "yes" is needed for Backspace outside a text box, "Force Quit", "Open Anyway", Mac program files (`.app`,
     `.command`, `.pkg`, …), and for Return when the window's default button sends, deletes or runs something, or
     can't be read.

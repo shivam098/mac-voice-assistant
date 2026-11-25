@@ -124,6 +124,9 @@ private final class BrainDesktop: JarvisDesktop {
     /// Apps' names by process, as the Mac desktop reports them.
     var appNames: [String: String] = [:]
 
+    /// Why zooming the window in front fails; nil: it fills the screen.
+    var zoomFailure: String?
+
     init(_ platform: BrainPlatform, browser: WindowInfo) {
         brainPlatform = platform
         self.browser = browser
@@ -205,6 +208,15 @@ private final class BrainDesktop: JarvisDesktop {
         }
 
         return .ok("ok", window: window)
+    }
+
+    func zoom(_ window: WindowInfo) async throws -> DesktopResult {
+        actions.append("zoom:\(window.processName)")
+        if let zoomFailure {
+            return .fail(zoomFailure)
+        }
+
+        return .ok("\(window.title) fills the screen.", window: window)
     }
 
     func openURL(_ link: WebLink) async throws -> DesktopResult {
@@ -1128,7 +1140,7 @@ class BrainControllerTests: XCTestCase {
 
     func testWindowsKeysTheMacHasNoKeyForAreRefusedThere() async throws {
         frontWindow(notepad)
-        for chord in ["Win+Up", "Win+D"] {
+        for chord in ["Win+D", "Win+Left"] {
             desktop.actions.removeAll()
             brain.enqueue(planReply("Done.", [("press", chord, "")]))
             try await say("Do the thing.")
@@ -1138,6 +1150,41 @@ class BrainControllerTests: XCTestCase {
             } else {
                 XCTAssertEqual(["keys:\(chord)"], desktop.actions)
             }
+        }
+    }
+
+    /// F21 to F24, however a plan spells them: Windows presses them, as in the C#. Mac keyboards stop at F20, so the
+    /// Mac refuses them in the core and says why, and its desktop is never asked to press them (it would fail the run).
+    func testF21ToF24ArePressedOnWindowsAndRefusedInTheCoreOnTheMac() async throws {
+        frontWindow(notepad)
+        for keys in ["f21", "Ctrl+F22", "shift + f23", "F24"] {
+            desktop.actions.removeAll()
+            brain.enqueue(planReply("Done.", [("press", keys, "")]))
+            try await say("Do the thing.")
+            let chord = BrainSafety.normalizeChord(keys) ?? ""
+            if mac {
+                XCTAssertEqual([], desktop.actions, keys)
+                XCTAssertEqual(.warning, statuses.last?.kind, keys)
+                XCTAssertEqual("I won't press \(chord): a Mac keyboard has no such key.", lastMessage)
+            } else {
+                XCTAssertEqual(["keys:\(chord)"], desktop.actions, keys)
+                XCTAssertEqual(["Pressed \(chord).", "Done."], statuses.messages.lastItems(2), keys)
+            }
+        }
+    }
+
+    /// "…maximize this window" presses Win+Up, however the plan spells it. Windows presses it, as in the C#; the Mac
+    /// has no key for it, so it zooms the window in front instead and presses nothing.
+    func testMaximizePressesWinUpOnWindowsAndZoomsTheWindowOnTheMac() async throws {
+        frontWindow(notepad, .normal)
+        for keys in ["win+up", "Windows + Up"] {
+            desktop.actions.removeAll()
+            brain.enqueue(planReply("Maximized it.", [("press", keys, "")]))
+            try await say("Maximize this window.")
+            XCTAssertEqual(mac ? ["zoom:\(notepad.processName)"] : ["keys:Win+Up"], desktop.actions, keys)
+            let step = mac ? "\(notepad.title) fills the screen." : "Pressed Win+Up."
+            XCTAssertEqual([step, "Maximized it."], statuses.messages.lastItems(2), keys)
+            XCTAssertEqual(.success, statuses.last?.kind, keys)
         }
     }
 
@@ -1478,5 +1525,17 @@ final class BrainControllerMacTests: BrainControllerTests {
         brain.enqueue(planReply("Typed.", [("type_text", "", "hello")]))
         try await say("Write something here.")
         XCTAssertEqual(["type:hello"], desktop.actions)
+    }
+
+    /// A zoom that fails is reported as a step that failed is, and the plan stops there.
+    func testAZoomThatFailsIsReportedAndStopsThePlan() async throws {
+        frontWindow(notepad, .normal)
+        desktop.zoomFailure = "macOS didn't let me resize TextEdit."
+        brain.enqueue(planReply("Maximized it.", [("press", "win+up", ""), ("type_text", "", "hello")]))
+        try await say("Maximize this window.")
+        XCTAssertEqual(["zoom:\(notepad.processName)"], desktop.actions)
+        XCTAssertEqual(.warning, statuses.last?.kind)
+        XCTAssertEqual("macOS didn't let me resize TextEdit.", lastMessage)
+        XCTAssertTrue(traces.all.contains("brain: window not zoomed"))
     }
 }

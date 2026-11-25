@@ -11,9 +11,11 @@ import ThumbFreeCore
 /// refused, or needs a "yes", if Windows' rules say so for the chord as named or the Mac's say so for the Mac chord.
 /// The Mac chords:
 /// - a `ShortcutKeys` shortcut is the Mac's: Ctrl+Y is ⇧⌘Z, Alt+Left ⌘[, Alt+Right ⌘], Alt+Up ⌘↑, F5 ⌘R, Ctrl+Tab
-///   stays ⌃Tab and Ctrl+Backspace is ⌥⌫; Win+Up (maximize) has no Mac key;
+///   stays ⌃Tab and Ctrl+Backspace is ⌥⌫; Win+Up (maximize) has no Mac key, so the window in front is zoomed instead
+///   (`BrainKeyPress.zooms`);
 /// - Alt+F4 and Ctrl+F4 are ⌘W, Ctrl+F5 ⇧⌘R, F11 ⌃⌘F, Win+Down ⌘M and Win+M ⌥⌘M;
-/// - the other Win chords, and a modifier on its own, have no Mac key and are refused;
+/// - the other Win chords, F21 to F24 (Mac keyboards stop at F20) and a modifier on its own have no Mac key and are
+///   refused;
 /// - Ctrl with an arrow, Backspace or Delete, and without Alt, becomes ⌥, the Mac's word and paragraph key
 ///   (Ctrl+Shift+Left is ⌥⇧←, Ctrl+Down ⌥↓); any other Ctrl becomes ⌘ (Ctrl+L is ⌘L, Ctrl+Space ⌘Space);
 /// - Alt, Shift and the keys stay as they are.
@@ -133,7 +135,9 @@ public enum BrainSafety {
         return DotNet.trimEnd(NetText.string(utf16: units[..<Swift.max(0, max - 1)])) + "…"
     }
 
-    /// "ctrl + w" → "Ctrl+W", "win+up" → "Win+Up", "m" → "M". Nil if a key isn't one the assistant can press.
+    /// "ctrl + w" → "Ctrl+W", "win+up" → "Win+Up", "m" → "M". Nil if a key isn't one the assistant can press. It's the
+    /// same on every platform, with F1 to F24 as in the C#: `keyPress` refuses the keys a platform doesn't have (F21 to
+    /// F24 on the Mac).
     public static func normalizeChord(_ keys: String?) -> String? {
         guard let keys, !DotNet.isNullOrWhiteSpace(keys) else { return nil }
         let parts = DotNet.split(DotNet.trim(keys), ["+"]).map { DotNet.trim($0) }
@@ -171,25 +175,29 @@ public enum BrainSafety {
     }
 
     /// How `platform` presses `chord` (a plan's keys, as `normalizeChord` writes them), judged once: the exact keys to
-    /// press and the verdict on them. The interaction controller presses `keys` of the result and nothing else.
+    /// press and the verdict on them. The interaction controller presses `keys` of the result and nothing else, and for
+    /// one that `zooms` presses nothing and zooms the window in front.
     public static func keyPress(_ chord: String, _ platform: BrainPlatform) -> BrainKeyPress {
         guard platform.kind == .mac else {
             return BrainKeyPress(
-                named: chord, keys: chord, refusal: windowsRefusalReason(chord), focusDecides: false, kind: .windows)
+                named: chord, keys: chord, refusal: windowsRefusalReason(chord), focusDecides: false, zooms: false,
+                kind: .windows)
         }
 
         let keys = macChord(chord)
         var refusal = windowsRefusalReason(chord)
-        if refusal == nil {
+        let zooms = refusal == nil && macZooms(chord)
+        if refusal == nil && !zooms {
             if let keys {
                 refusal = macRefusalReason(keys)
             } else {
-                refusal = "a Mac has no key for it"
+                refusal = macNoKeyReason(chord)
             }
         }
 
         let focusDecides = keys.map { DotNet.ordinalEquals(lastPiece($0), "Backspace") } ?? false
-        return BrainKeyPress(named: chord, keys: keys, refusal: refusal, focusDecides: focusDecides, kind: .mac)
+        return BrainKeyPress(
+            named: chord, keys: keys, refusal: refusal, focusDecides: focusDecides, zooms: zooms, kind: .mac)
     }
 
     /// Why the brain never presses `chord` (a plan's keys, as `normalizeChord` writes them), or nil if it may. On the
@@ -252,10 +260,20 @@ public enum BrainSafety {
 
     private static let macModifierOrder = ["Ctrl", "Alt", "Shift", "Cmd"]
 
+    /// Keys Windows has and Macs don't: Mac keyboards stop at F20.
+    private static let keysMacsLack = ["F21", "F22", "F23", "F24"]
+
+    /// Why the Mac has no chord for `chord`: a Mac keyboard has no such key (F21 to F24), or no Mac key does what it
+    /// does (the other Win chords, a modifier on its own).
+    private static func macNoKeyReason(_ chord: String) -> String {
+        NetText.contains(keysMacsLack, lastPiece(chord)) ? "a Mac keyboard has no such key" : "a Mac has no key for it"
+    }
+
     /// Keys whose Ctrl moves are the Mac's ⌥ moves: by word left and right, by paragraph up and down.
     private static let wordMoveKeys = ["Left", "Right", "Up", "Down", "Backspace", "Delete"]
 
-    /// The Mac chord for a chord a plan names (as `normalizeChord` writes it), or nil if the Mac has no key for it.
+    /// The Mac chord for a chord a plan names (as `normalizeChord` writes it), or nil if the Mac has no key for it: the
+    /// Win chords other than Win+Down and Win+M, F21 to F24, and a modifier on its own.
     static func macChord(_ chord: String) -> String? {
         guard DotNet.ordinalEquals(normalizeChord(chord) ?? "", chord) else { return nil }
         if let shortcut = Shortcut.allCases.first(where: {
@@ -280,7 +298,8 @@ public enum BrainSafety {
         let pieces = NetText.split(chord, "+")
         let key = pieces[pieces.count - 1]
         var modifiers = Array(pieces.dropLast())
-        if NetText.contains(modifiers, "Win") || NetText.contains(modifierOrder, key) {
+        if NetText.contains(modifiers, "Win") || NetText.contains(modifierOrder, key)
+            || NetText.contains(keysMacsLack, key) {
             return nil
         }
 
@@ -289,6 +308,15 @@ public enum BrainSafety {
         }
 
         return (macModifierOrder.filter { NetText.contains(modifiers, $0) } + [key]).joined(separator: "+")
+    }
+
+    /// Whether the Mac zooms the window in front for `chord` (a plan's keys, as `normalizeChord` writes them): it's
+    /// Windows' maximize keys, and no Mac key maximizes (`ShortcutKeys.Maximize.zoomThroughAccessibility`).
+    private static func macZooms(_ chord: String) -> Bool {
+        guard case .keys(let maximize) = ShortcutKeys.windows.maximize,
+              ShortcutKeys.mac.maximize == .zoomThroughAccessibility
+        else { return false }
+        return DotNet.equalsOrdinalIgnoreCase(maximize, chord)
     }
 
     /// Mac chords the brain never presses, and why.
@@ -508,7 +536,7 @@ public struct BrainKeyPress: Equatable, Sendable {
     public let named: String
 
     /// The platform's keys for it: `named` on Windows, its Mac chord on the Mac; nil when the Mac has no key for it
-    /// (then it's refused).
+    /// (then it's refused, unless it `zooms`).
     public let keys: String?
 
     /// Why it's never pressed, or nil if it may be.
@@ -517,9 +545,13 @@ public struct BrainKeyPress: Equatable, Sendable {
     /// Whether `needsConfirmation` depends on what has the focus (on the Mac, for a Backspace): read it first.
     public let focusDecides: Bool
 
+    /// On the Mac, Windows' maximize keys (Win+Up): nothing is pressed, and the window in front is zoomed instead
+    /// (`JarvisDesktop.zoom`), with no "yes", as Windows presses Win+Up. Never on Windows.
+    public let zooms: Bool
+
     let kind: BrainPlatform.Kind
 
-    /// The keys to press, or nil when it's refused. A "yes" may still be needed first (`needsConfirmation`).
+    /// The keys to press, or nil when it's refused or `zooms`. A "yes" may still be needed first (`needsConfirmation`).
     public var pressable: String? { refusal == nil ? keys : nil }
 
     /// How the messages name it: the platform's keys, else the chord as named.

@@ -201,14 +201,19 @@ public protocol JarvisDesktop: AnyObject {
     /// Focuses the text box and verifies the focus landed in it.
     func focusTextBox(_ box: UiElement) async throws -> TextTargetResult
 
-    // The AI brain (windows-voice-assistant docs/design/ai-brain.md): the open windows, bringing one to the front,
-    // opening web pages.
+    // The AI brain (windows-voice-assistant docs/design/ai-brain.md): the open windows, bringing one to the front or
+    // zooming it, opening web pages.
 
     /// Top-level app windows (not the assistant's own), the front-most first.
     func listWindows() async throws -> [DesktopWindow]
 
     /// Restores the window if minimized, brings it to the front and verifies it is there.
     func activateWindow(_ window: WindowInfo) async throws -> DesktopResult
+
+    /// Makes the window fill the usable part of its screen, as maximizing does. No Mac key does it
+    /// (`ShortcutKeys.Maximize.zoomThroughAccessibility`), so where a plan presses Windows' maximize keys the brain
+    /// zooms the window in front with this instead (`BrainKeyPress.zooms`). Default: it isn't supported.
+    func zoom(_ window: WindowInfo) async throws -> DesktopResult
 
     /// Opens an http(s) page in a new tab of the browser in front, else the default browser; the result's window is the
     /// browser when it came to the front. It opens `link.url`, never `absoluteUri`, which keeps .NET's Unicode host.
@@ -268,6 +273,10 @@ extension JarvisDesktop {
 
     public func activateWindow(_ window: WindowInfo) async throws -> DesktopResult {
         .fail("Switching windows isn't supported here.")
+    }
+
+    public func zoom(_ window: WindowInfo) async throws -> DesktopResult {
+        .fail("Zooming windows isn't supported here.")
     }
 
     public func openURL(_ link: WebLink) async throws -> DesktopResult {
