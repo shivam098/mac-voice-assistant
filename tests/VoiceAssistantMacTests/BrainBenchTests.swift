@@ -101,6 +101,8 @@ final class BrainBenchTests: XCTestCase {
         // the brain yet (`unavailableReason`); the bench measures them all the same.
         let log = environment["BRAIN_BENCH_SERVER_LOG"]
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("brain-bench-llama-server.log")
+        // The supervisor appends to it: this run's log only.
+        try? FileManager.default.removeItem(atPath: log)
         let brain = LlamaBrain(
             files: files, keepLoaded: 0, http: URLSessionBrainHTTP(), launcher: ServerSupervisor(output: log),
             unavailableReason: nil, idleCheckInterval: 0)
@@ -185,10 +187,42 @@ struct BrainBenchReport {
 
     var memory: String { "\(Self.gigabytes(peakResident)) resident, \(Self.gigabytes(peakFootprint)) footprint" }
 
-    /// The graphics chip llama-server used and the layers it put there, from its log (CI raises its log level).
+    /// The graphics chip llama-server found, and whether it has what llama.cpp's Metal code needs for the model's
+    /// matrix multiplications (simdgroup reduction), from its log (CI raises its log level for this).
     var graphics: String {
-        let name = logged(after: "GPU name:") ?? "none named in llama-server's log"
-        return logged(after: "offloaded ").map { "\(name), \($0)" } ?? name
+        guard let name = logged(after: "GPU name:") else { return "none: the processor only" }
+        return logged(after: "simdgroup reduction").map { "\(name), simdgroup reduction \($0)" } ?? name
+    }
+
+    /// Where llama-server put the model's weights, its KV cache and its working memory, from its log: MiB in each kind
+    /// of buffer (CPU_REPACK is weights rearranged for the processor; MTL0 is the graphics chip).
+    var buffers: String {
+        let kinds = [
+            ("weights", " model buffer size = "), ("KV cache", " KV buffer size = "),
+            ("work", " compute buffer size = "),
+        ]
+        let lines = serverLog.components(separatedBy: "\n")
+        var parts: [String] = []
+        for (label, marker) in kinds {
+            var sizes: [(kind: String, mib: Double)] = []
+            for line in lines {
+                guard let found = line.range(of: marker) else { continue }
+                let kind = line[..<found.lowerBound].split(separator: " ").last.map(String.init) ?? "?"
+                let mib = Double(line[found.upperBound...].split(separator: " ").first ?? "") ?? 0
+                if let index = sizes.firstIndex(where: { $0.kind == kind }) {
+                    sizes[index].mib += mib
+                } else {
+                    sizes.append((kind: kind, mib: mib))
+                }
+            }
+
+            if !sizes.isEmpty {
+                let listed = sizes.map { "\($0.kind) \(Int($0.mib.rounded())) MiB" }
+                parts.append("\(label) " + listed.joined(separator: ", "))
+            }
+        }
+
+        return parts.joined(separator: "; ")
     }
 
     /// Reading and writing speeds over every request, from llama-server's timings.
@@ -223,6 +257,7 @@ struct BrainBenchReport {
 
             - **This Mac:** \(machine)
             - **Graphics:** \(graphics)
+            - **Where llama.cpp put the model:** \(buffers.isEmpty ? "not in its log" : buffers)
             - **Files:** \(downloaded)
 
             | | This Mac | Windows (v0.12.1: Snapdragon X Elite, its Adreno GPU) |
