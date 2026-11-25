@@ -48,19 +48,23 @@ struct ServerSupervisor: ServerLauncher {
 /// llama-server under its supervisor (see `ServerSupervisor`).
 final class SupervisedServer: ServerProcess, @unchecked Sendable {
     /// The supervisor. Its arguments are where the server's output goes, then the server and the server's arguments;
-    /// its standard input is the pipe from this app. It writes the server's process id, then a watcher waits until the
-    /// pipe closes and kills the server. It ends when the server ends, with the server's exit status.
+    /// its standard input is the pipe from this app. It starts the server, then a watcher that waits until the pipe
+    /// closes and kills the server, and only then writes the server's process id for this app. Watcher first, so a
+    /// dead app can't orphan the server: writing to an app that is already gone (it crashed or quit while the server
+    /// started, or stopped waiting for the id) kills the supervisor with SIGPIPE, and a watcher due after that write
+    /// would never start, leaving the server running with the model loaded. The watcher writes nowhere, so it doesn't
+    /// hold the pipe the id is read from. The supervisor ends when the server ends, with the server's exit status.
     static let script = """
         output=$1
         shift
         exec 3<&0 </dev/null
         "$@" 3<&- >>"$output" 2>&1 &
         server=$!
-        echo "$server"
-        exec >/dev/null
-        { while read -r line <&3; do :; done; kill -s KILL "$server" 2>/dev/null; } &
+        { while read -r line <&3; do :; done; kill -s KILL "$server" 2>/dev/null; } >/dev/null &
         watcher=$!
         exec 3<&-
+        echo "$server"
+        exec >/dev/null
         wait "$server"
         status=$?
         kill -s KILL "$watcher" 2>/dev/null
@@ -147,6 +151,7 @@ final class SupervisedServer: ServerProcess, @unchecked Sendable {
         }
 
         // The supervisor didn't end it: end both directly.
+        // Known gap: a supervisor stalled >13 s between starting the server and its watcher leaves the server running.
         let server = serverID
         if server > 0 {
             kill(server, SIGKILL)

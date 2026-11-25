@@ -22,10 +22,13 @@ public struct BrainFiles: Sendable {
         "a7e77443b598e497e43bfc9dcb993a355a217df9a2eda99c3d421356ab70c1a9", 17_212_020)
 
     /// Windows' model. Q4_0 is the format llama.cpp's Adreno code is tuned for (ai-brain.md, spike 2); on Metal, Q4_K_M
-    /// is measured against it before the first release (docs/design.md).
+    /// is measured against it before the first release (docs/design.md). Pinned to the commit of unsloth's repository
+    /// that has this file, so a new upload there can't make a finished 2.4 GB download fail its check (Windows still
+    /// follows main).
     static let pinnedModel = ModelFile(
         "Qwen3-4B-Instruct-2507-Q4_0.gguf",
-        "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_0.gguf",
+        "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/"
+            + "Qwen3-4B-Instruct-2507-Q4_0.gguf",
         "e0ba675d86ab277c61701c6793659b2ae801d95e3be791464c321e6fbf613be2", 2_375_773_280)
 
     static let chosenFileMissing = "A file chosen in settings.json (brainServerPath or brainModelPath) doesn't exist."
@@ -128,15 +131,16 @@ public struct BrainFiles: Sendable {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let store = ModelStore(primaryFolder: folder, session: session)
         let total = missingBytes
+        // Only ever the default paths, so a chosen file or its folder is never written over or deleted.
         var done: Int64 = 0
-        if !Self.isFile(serverPath) {
+        if !serverChosen && !Self.isFile(serverPath) {
             let before = done
             try await store.download(downloads.server) { progress(before + $0.done, total) }
             try await unpackServer()
             done += downloads.server.bytes
         }
 
-        if !Self.isFile(modelPath) {
+        if !modelChosen && !Self.isFile(modelPath) {
             let before = done
             try await store.download(downloads.model) { progress(before + $0.done, total) }
         }

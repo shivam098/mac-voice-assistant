@@ -5,7 +5,8 @@ import XCTest
 
 /// The supervisor that keeps llama-server from outliving the app (Windows: a job object), with real processes standing
 /// in for the server: stopping goes through it, the server gets its key and folder, an ending is noticed, nothing else
-/// the app starts keeps the server alive, and killing the app ends the server.
+/// the app starts keeps the server alive, and killing the app ends the server, even when the app is gone before the
+/// supervisor has told it the server's id.
 final class BrainSupervisorTests: XCTestCase {
     private var folder: BrainTempFolder!
 
@@ -87,6 +88,70 @@ final class BrainSupervisorTests: XCTestCase {
         server.stop()
         XCTAssertLessThan(Date().timeIntervalSince(started), 2, "another program held the supervisor's pipe open")
         XCTAssertTrue(BrainProcesses.waitUntilGone(server.serverID, 5))
+    }
+
+    /// The app is gone before the supervisor tells it the server's id (it crashed or quit while the server started):
+    /// the app's end of the id's pipe is closed from the start, so writing the id kills the supervisor with SIGPIPE.
+    /// Its watcher must be running by then and end the server when the lifeline closes. With the id written before
+    /// the watcher started (the first version of the script), the supervisor died first and the server ran on, so this
+    /// failed. The lifeline closes once the stand-in server has written its id, not at once, so that the watcher can't
+    /// kill it before the test knows its id; the old order fails either way, as its watcher never starts.
+    func testTheServerEndsWhenTheAppIsGoneBeforeTheSupervisorWritesItsID() throws {
+        let idFile = folder.file("server.pid")
+        let lifeline = Pipe()
+        let report = Pipe()
+        for handle in [lifeline.fileHandleForReading, lifeline.fileHandleForWriting, report.fileHandleForReading,
+                       report.fileHandleForWriting] {
+            _ = fcntl(handle.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        }
+
+        try report.fileHandleForReading.close()
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = [
+            "-c", SupervisedServer.script, "llama-server-supervisor", "/dev/null",
+            "/bin/sh", "-c", #"echo $$ >"$SERVER_ID_FILE"; exec sleep 600"#,
+        ]
+        shell.environment = ProcessInfo.processInfo.environment.merging(["SERVER_ID_FILE": idFile]) { $1 }
+        shell.standardInput = lifeline
+        shell.standardOutput = report
+        shell.standardError = FileHandle.nullDevice
+        try shell.run()
+
+        var server: Int32 = 0
+        var lifelineClosed = false
+        defer {
+            if !lifelineClosed {
+                try? lifeline.fileHandleForWriting.close()
+            }
+
+            if server > 0 && BrainProcesses.isAlive(server) {
+                kill(server, SIGKILL)
+            }
+
+            if shell.isRunning {
+                kill(shell.processIdentifier, SIGKILL)
+            }
+        }
+
+        let serverStarted = BrainWait.until(10) {
+            let text = (try? String(contentsOfFile: idFile, encoding: .utf8)) ?? ""
+            server = text.hasSuffix("\n") ? Int32(text.dropLast()) ?? 0 : 0
+            return server > 0
+        }
+
+        XCTAssertTrue(serverStarted, "the stand-in server didn't start")
+
+        // Writing the id to the app that's gone ended the supervisor.
+        XCTAssertTrue(BrainWait.until(10) { !shell.isRunning }, "the supervisor didn't end")
+        if !shell.isRunning {
+            XCTAssertEqual(.uncaughtSignal, shell.terminationReason)
+            XCTAssertEqual(SIGPIPE, shell.terminationStatus)
+        }
+
+        lifelineClosed = true
+        try lifeline.fileHandleForWriting.close()
+        XCTAssertTrue(BrainWait.until(5) { kill(server, 0) == -1 && errno == ESRCH }, "the server outlived the app")
     }
 
     func testTheServerEndsWhenTheAppIsKilled() throws {
