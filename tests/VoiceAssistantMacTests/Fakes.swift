@@ -99,6 +99,9 @@ final class FakeAX: AXSystem {
     /// False: the system-wide element gets no answer.
     var answers = true
 
+    /// False: the system-wide element's focused element gets no answer (its focused application still does).
+    var focusAnswers = true
+
     /// What `set(kAXFocusedAttribute…)` does, besides focusing an element that takes the focus.
     var onSet: ((FakeElement, String, Bool) -> Void)?
     var onPerform: ((FakeElement, String) -> Void)?
@@ -109,7 +112,7 @@ final class FakeAX: AXSystem {
     }
 
     func focusedElement() throws -> AnyObject? {
-        guard answers else { throw AXNoAnswer() }
+        guard answers, focusAnswers else { throw AXNoAnswer() }
         return focused
     }
 

@@ -161,8 +161,26 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     /// modifier keys are let go (`PasteTyper.paste`). Nothing is typed while a password is being typed somewhere
     /// (secure input): PasteTyper throws then, as for ThumbFree.
     public func typeText(_ text: String) throws {
-        typer.insertMethod = DotNet.equalsOrdinalIgnoreCase(insertMethod(), "Paste") ? .paste : .typeWithKeys
+        useInsertMethod()
         try typer.paste(text)
+    }
+
+    /// Types `text` with each line break as `newLineKeys`, a chord of the Mac's grammar (⇧↩ in chat apps, where ↩
+    /// sends), as ThumbFreeMac's `PasteTyper.type` types a dictation: each line pasted (or typed with keys) and the
+    /// new-line keys pressed between lines, each once held modifier keys are let go and secure input is checked. While
+    /// a password is being typed somewhere, or Terminal's Secure Keyboard Entry is on, nothing goes out, not even the
+    /// new-line keys of a text that starts with a line break, and PasteTyper's `Failure.secureInput` comes through as
+    /// it is. Keys asked for by name (`pressKeys`) still go out then, as on Windows; the core presses a typing's line
+    /// breaks with `pressKeys` today, which can't tell them from "press enter", so its typing belongs here.
+    public func typeText(_ text: String, newLineKeys: String) throws {
+        let newLine = try presser.resolve(newLineKeys)
+        useInsertMethod()
+        try typer.type(text, newLine: newLine)
+    }
+
+    /// The insertMethod setting, read before each typing: "Paste", or "Type" for key events.
+    private func useInsertMethod() {
+        typer.insertMethod = DotNet.equalsOrdinalIgnoreCase(insertMethod(), "Paste") ? .paste : .typeWithKeys
     }
 
     /// Presses a chord in the Mac's grammar (`MacChord`) once held modifier keys are let go; `UnknownKeys` for any

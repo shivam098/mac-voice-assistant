@@ -148,7 +148,8 @@ final class KeysTests: XCTestCase {
         }
     }
 
-    /// Keys aren't held back while a password is typed somewhere, as Windows presses them; typing is (`TypingTests`).
+    /// Keys asked for by name aren't held back while a password is typed somewhere, as Windows presses them ("press
+    /// enter" in Terminal with Secure Keyboard Entry); a typing's are (`TypingTests`).
     func testKeysGoOutDuringSecureInput() throws {
         let rig = Rig()
         rig.keys.secureInput = .on
@@ -191,5 +192,54 @@ final class TypingTests: XCTestCase {
         }
 
         XCTAssertTrue(rig.keys.posted.isEmpty)
+    }
+
+    /// A typing with line breaks: each line pasted (or typed with keys), the new-line keys pressed between lines.
+    func testTypesLinesWithTheNewLineKeys() throws {
+        let rig = Rig()
+        let newLine = PasteTyper.Chord(key: CGKeyCode(kVK_Return), modifiers: .shift)
+        try rig.desktop.typeText("Hi\n\nthere", newLineKeys: "Shift+Enter")
+        XCTAssertEqual(["Hi", "there"], rig.pasteboard.writes)
+        XCTAssertEqual([rig.keys.pasteChord, newLine, newLine, rig.keys.pasteChord], rig.keys.posted)
+
+        let typed = Rig()
+        typed.insertMethod = "Type"
+        try typed.desktop.typeText("\nok", newLineKeys: "Enter")
+        XCTAssertEqual([PasteTyper.Chord(key: CGKeyCode(kVK_Return))], typed.keys.posted)
+        XCTAssertEqual(["ok"], typed.keys.typed)
+    }
+
+    /// While a password is typed somewhere, or Terminal's Secure Keyboard Entry is on, a typing sends nothing: not even
+    /// the new-line keys of a text that starts with a line break ("new line ls" mustn't press Return in Terminal).
+    /// PasteTyper's failure comes through as it is.
+    func testATypingSendsNothingDuringSecureInput() {
+        let rig = Rig()
+        rig.pasteboard.text = "copied"
+        let states: [(FocusedField.SecureInput, PasteTyper.Failure)] = [
+            (.on, .secureInput), (.unknown, .secureInputUnknown),
+        ]
+        for (state, failure) in states {
+            rig.keys.secureInput = state
+            for text in ["\nls -la\nrm -rf build", "ls -la\nrm -rf build", "\n"] {
+                XCTAssertThrowsError(try rig.desktop.typeText(text, newLineKeys: "Shift+Enter"), text) { error in
+                    XCTAssertEqual(failure, error as? PasteTyper.Failure)
+                }
+            }
+        }
+
+        XCTAssertTrue(rig.keys.posted.isEmpty)
+        XCTAssertTrue(rig.keys.typed.isEmpty)
+        XCTAssertEqual("copied", rig.pasteboard.text)
+    }
+
+    /// New-line keys outside the Mac's grammar: nothing goes out.
+    func testUnknownNewLineKeysTypeNothing() {
+        let rig = Rig()
+        XCTAssertThrowsError(try rig.desktop.typeText("a\nb", newLineKeys: "Win+Enter")) { error in
+            XCTAssertEqual(UnknownKeys(chord: "Win+Enter"), error as? UnknownKeys)
+        }
+
+        XCTAssertTrue(rig.keys.posted.isEmpty)
+        XCTAssertTrue(rig.pasteboard.writes.isEmpty)
     }
 }

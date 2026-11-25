@@ -75,10 +75,29 @@ extension MacDesktop {
         }
     }
 
-    /// The element with the keyboard focus, in whichever app has it; nil when there's none or it can't be told (C#'s
-    /// `Focused`).
+    /// The element with the keyboard focus, in whichever app has it (C#'s `Focused`): the system-wide element's, else,
+    /// when that answers that nothing has the focus, the focused element of the app taking the keys, or of the app in
+    /// front when that isn't known either (never this app's): some apps answer for themselves when the system-wide
+    /// element doesn't, as ThumbFreeMac's reader finds. Nil when nothing has the focus, or when a question gets no
+    /// answer: nothing else is asked then.
     func focus() -> AnyObject? {
-        try? ax.focusedElement()
+        do {
+            if let focused = try ax.focusedElement() {
+                return focused
+            }
+
+            let owner: pid_t?
+            if let app = try ax.focusedApplication() {
+                owner = try ax.processIdentifier(of: app)
+            } else {
+                owner = workspace.frontmostApp()?.processIdentifier
+            }
+
+            guard let owner, owner != ownProcess else { return nil }
+            return try ax.element(kAXFocusedUIElementAttribute, of: ax.application(owner))
+        } catch {
+            return nil
+        }
     }
 
     /// C#'s `Check`: unknown without a focused element or an answer.

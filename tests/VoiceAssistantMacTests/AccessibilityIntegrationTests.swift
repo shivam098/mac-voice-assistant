@@ -16,7 +16,17 @@ final class AccessibilityIntegrationTests: XCTestCase {
         name: "TextEdit", launch: "com.apple.TextEdit", processNames: ["com.apple.TextEdit"], newLineKeys: "Enter",
         textArea: "Largest")
 
+    /// TextEdit's settings these tests set, and put back afterwards: a new document when it starts, not its Open
+    /// panel, and no windows from before restored (a document an earlier test typed into).
+    private static let textEditSettings = [
+        (key: "NSShowAppCentricOpenPanelInsteadOfUntitledFile", value: false),
+        (key: "ApplePersistenceIgnoreState", value: true),
+    ]
+
     private var desktop: MacDesktop!
+
+    /// What those settings were (`defaults write`'s type and value), nil for one that wasn't set.
+    private var previousSettings: [(key: String, value: [String]?)] = []
 
     override func setUp() async throws {
         try await super.setUp()
@@ -28,10 +38,13 @@ final class AccessibilityIntegrationTests: XCTestCase {
             AXIsProcessTrusted() && CGPreflightPostEventAccess(),
             "Needs Accessibility and the permission to post events for the test process.")
 
-        // A new document when TextEdit starts, not its Open panel.
-        Self.run(
-            "/usr/bin/defaults", "write", "com.apple.TextEdit", "NSShowAppCentricOpenPanelInsteadOfUntitledFile",
-            "-bool", "false")
+        previousSettings = Self.textEditSettings.map { (key: $0.key, value: Self.textEditSetting($0.key)) }
+        for setting in Self.textEditSettings {
+            Self.run(
+                "/usr/bin/defaults", "write", "com.apple.TextEdit", setting.key, "-bool",
+                setting.value ? "true" : "false")
+        }
+
         await Self.quitTextEdit()
         desktop = MacDesktop(insertMethod: { "Type" }, log: { Self.report("desktop: \($0)") })
     }
@@ -39,6 +52,13 @@ final class AccessibilityIntegrationTests: XCTestCase {
     override func tearDown() async throws {
         if desktop != nil {
             await Self.quitTextEdit()
+            for setting in previousSettings {
+                if let value = setting.value {
+                    Self.run(["/usr/bin/defaults", "write", "com.apple.TextEdit", setting.key] + value)
+                } else {
+                    Self.run(["/usr/bin/defaults", "delete", "com.apple.TextEdit", setting.key])
+                }
+            }
         }
 
         try await super.tearDown()
@@ -61,7 +81,14 @@ final class AccessibilityIntegrationTests: XCTestCase {
         let prepared = try await desktop.prepareTextTarget(front, profile: Self.textEdit)
         XCTAssertTrue(prepared.success, prepared.message)
         XCTAssertEqual(true, prepared.focusIsEditable)
-        XCTAssertEqual(false, prepared.hasTrailingText)
+
+        // An empty document, whatever TextEdit kept from before.
+        try desktop.pressKeys("Cmd+A")
+        try desktop.backspace(1)
+        try await Self.settle()
+        let empty = try await desktop.prepareTextTarget(front, profile: Self.textEdit)
+        XCTAssertEqual(false, empty.hasTrailingText)
+        XCTAssertEqual(CaretText(before: "", caretKnown: true), desktop.readTextBeforeCaret())
 
         try desktop.typeText("Hello from Jarvis")
         try await Self.settle()
@@ -96,6 +123,11 @@ final class AccessibilityIntegrationTests: XCTestCase {
         try await Self.settle()
         XCTAssertEqual("Hello from \nSecond line", desktop.readTextBeforeCaret()?.before)
 
+        // A typing with a line break: TextEdit's new-line key between the lines.
+        try desktop.typeText("\nThird", newLineKeys: Self.textEdit.newLineKeys)
+        try await Self.settle()
+        XCTAssertEqual("Hello from \nSecond line\nThird", desktop.readTextBeforeCaret()?.before)
+
         XCTAssertEqual(.noButton, desktop.describeDefaultButton())
         try desktop.pressKeys("Cmd+S")
         var button = DefaultButtonInfo.noButton
@@ -108,6 +140,11 @@ final class AccessibilityIntegrationTests: XCTestCase {
         Self.report("default button with the Save sheet open: \(Self.describe(button))")
         XCTAssertNotEqual(.noButton, button)
         try desktop.pressKeys("Esc")
+
+        // Nothing typed is left for TextEdit to keep.
+        try await Self.settle()
+        try desktop.pressKeys("Cmd+A")
+        try desktop.backspace(1)
     }
 
     /// "Open TextEdit" with TextEdit open, wanting a new window: its new-window keys (⌘N, as the layout types N), then
@@ -239,14 +276,50 @@ final class AccessibilityIntegrationTests: XCTestCase {
     }
 
     private static func run(_ tool: String, _ arguments: String...) {
+        run([tool] + arguments)
+    }
+
+    private static func run(_ command: [String]) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
+        process.executableURL = URL(fileURLWithPath: command[0])
+        process.arguments = Array(command.dropFirst())
         do {
             try process.run()
             process.waitUntilExit()
         } catch {
-            report("couldn't run \(tool)")
+            report("couldn't run \(command[0])")
         }
+    }
+
+    /// A TextEdit setting as `defaults write` takes it back (its type and value), or nil when it isn't set.
+    private static func textEditSetting(_ key: String) -> [String]? {
+        guard let value = output("/usr/bin/defaults", "read", "com.apple.TextEdit", key),
+              let type = output("/usr/bin/defaults", "read-type", "com.apple.TextEdit", key) else { return nil }
+        switch type {
+        case "Type is boolean": return ["-bool", value == "1" ? "true" : "false"]
+        case "Type is integer": return ["-int", value]
+        case "Type is float": return ["-float", value]
+        default: return ["-string", value]
+        }
+    }
+
+    /// What a tool prints, trimmed; nil when it fails (`defaults read` of a setting that isn't there).
+    private static func output(_ tool: String, _ arguments: String...) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        let printed = Pipe()
+        process.standardOutput = printed
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let data = printed.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

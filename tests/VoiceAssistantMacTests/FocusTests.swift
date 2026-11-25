@@ -81,6 +81,74 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(.safe, rig.desktop.checkFocusedField())
     }
 
+    // MARK: Where the focus is read
+
+    /// When the system-wide element answers that nothing has the focus, the app taking the keys is asked: some apps
+    /// answer for themselves when the system-wide element doesn't (ThumbFreeMac's reader asks them too).
+    func testAsksTheAppTakingTheKeysWhenTheSystemSaysNothingHasTheFocus() {
+        let rig = Rig()
+        let box = FakeElement.textField(name: "Message")
+        box.holds("Hi", cursor: 1)
+        rig.front(focus: box)
+        rig.ax.focused = nil
+        XCTAssertEqual(.unknown, rig.desktop.checkFocusedField())
+
+        rig.ax.focusedApp?[kAXFocusedUIElementAttribute] = box
+        XCTAssertEqual(.safe, rig.desktop.checkFocusedField())
+        XCTAssertEqual(FocusInfo(name: "Message", editable: true, inPage: false), rig.desktop.describeFocus())
+        XCTAssertEqual(CaretText(before: "H", caretKnown: true), rig.desktop.readTextBeforeCaret())
+        XCTAssertEqual(true, rig.desktop.focusedTextEndsWithNonWhitespace())
+    }
+
+    /// A question that gets no answer stays unanswered (fail closed): the apps aren't asked instead.
+    func testNoAnswerIsNotAskedElsewhere() {
+        let rig = Rig()
+        let box = FakeElement.textField(name: "Message")
+        rig.front(focus: box)
+        rig.ax.focusedApp?[kAXFocusedUIElementAttribute] = box
+        rig.workspace.front = rig.workspace.app(42)
+        rig.ax.focusAnswers = false
+        XCTAssertEqual(.unknown, rig.desktop.checkFocusedField())
+        XCTAssertNil(rig.desktop.describeFocus())
+        XCTAssertNil(rig.desktop.readTextBeforeCaret())
+        XCTAssertNil(rig.desktop.focusedTextEndsWithNonWhitespace())
+
+        // Nothing has the focus, and the app taking the keys doesn't answer: the app in front isn't asked either.
+        rig.ax.focusAnswers = true
+        rig.ax.focused = nil
+        let other = FakeElement.app(pid: 43)
+        other[kAXFocusedUIElementAttribute] = FakeElement.textField(pid: 43, name: "Other")
+        rig.ax.apps[43] = other
+        rig.workspace.run(43, "com.example.Other", "Other")
+        rig.workspace.front = rig.workspace.app(43)
+        rig.ax.focusedApp?.answers = false
+        XCTAssertNil(rig.desktop.describeFocus())
+    }
+
+    /// When the app taking the keys isn't known either, the app in front is asked; this app never is.
+    func testAsksTheAppInFrontButNeverThisApp() throws {
+        let rig = Rig()
+        let box = FakeElement.textField(name: "Notes")
+        rig.front(focus: box)
+        rig.ax.focused = nil
+        rig.ax.focusedApp = nil
+        rig.ax.apps[42]?[kAXFocusedUIElementAttribute] = box
+        XCTAssertNil(rig.desktop.describeFocus())
+
+        rig.workspace.front = rig.workspace.app(42)
+        XCTAssertEqual("Notes", rig.desktop.describeFocus()?.name)
+        XCTAssertEqual(.safe, rig.desktop.checkFocusedField())
+
+        let own = try XCTUnwrap(rig.ax.application(Rig.own) as? FakeElement)
+        own[kAXFocusedUIElementAttribute] = FakeElement.textField(pid: Rig.own, name: "Own")
+        rig.workspace.front = RunningApp(processIdentifier: Rig.own, bundleIdentifier: "com.example.VoiceAssistant")
+        XCTAssertNil(rig.desktop.describeFocus())
+
+        rig.workspace.front = rig.workspace.app(42)
+        rig.ax.focusedApp = own
+        XCTAssertNil(rig.desktop.describeFocus())
+    }
+
     // MARK: describeFocus
 
     func testDescribesTheFocusedBox() {
