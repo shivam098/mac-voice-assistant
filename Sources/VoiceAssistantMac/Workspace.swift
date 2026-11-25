@@ -199,11 +199,12 @@ public final class SystemWorkspace: WorkspaceSystem, @unchecked Sendable {
         }
     }
 
+    /// The folder's items but those whose names start with a dot. Hidden ones are kept: the link to Safari mustn't be
+    /// lost to a hidden flag.
     public func folderItems(_ folder: URL) -> [FolderItem] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
-        return urls.map { url in
+        let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
+        return urls.filter { !$0.lastPathComponent.hasPrefix(".") }.map { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             return FolderItem(url: url, isFolder: values?.isDirectory == true && values?.isPackage != true)
         }

@@ -258,7 +258,9 @@ final class FocusTests: XCTestCase {
         XCTAssertEqual(.named(""), rig.desktop.describeDefaultButton())
     }
 
-    /// Return goes to a sheet while it's open: the focus's sheet, or with nothing focused the sheet on the window.
+    /// Return goes to a sheet while it's open: the focus's sheet, or the sheet on the focus's window, or with nothing
+    /// focused the sheet on the app's window. A sheet whose default button can't be read (the save panel's buttons are
+    /// another process's) is unknown.
     func testASheetsDefaultButtonIsTheOneReturnPresses() {
         let rig = Rig()
         let window = rig.front()
@@ -270,12 +272,19 @@ final class FocusTests: XCTestCase {
         delete[kAXTitleAttribute] = "Delete"
         sheet[kAXDefaultButtonAttribute] = delete
         let field = FakeElement.textField()
+        let behind = FakeElement.textField()
         sheet.children = [field, delete]
-        window.children = [sheet]
+        window.children = [behind, sheet]
         XCTAssertEqual(.named("Delete"), rig.desktop.describeDefaultButton())
 
         rig.ax.focused = field
         XCTAssertEqual(.named("Delete"), rig.desktop.describeDefaultButton())
+
+        rig.ax.focused = behind
+        XCTAssertEqual(.named("Delete"), rig.desktop.describeDefaultButton())
+
+        sheet[kAXDefaultButtonAttribute] = nil
+        XCTAssertEqual(.unknown, rig.desktop.describeDefaultButton())
     }
 
     func testUnknownWhenTheWindowCantBeTold() {

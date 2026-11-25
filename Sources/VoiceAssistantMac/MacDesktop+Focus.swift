@@ -65,8 +65,9 @@ extension MacDesktop {
         }
     }
 
-    /// The default button of the window Return goes to (AXDefaultButton), 0.6 s at most: `.unknown` when that window
-    /// can't be told or doesn't answer, its name (empty when it can't be read) when it has one.
+    /// The default button of the window Return goes to (AXDefaultButton), 0.6 s at most: its name (empty when it can't
+    /// be read) when it has one; `.unknown` when that window can't be told or doesn't answer, or when it's a sheet whose
+    /// default button can't be read (the save panel's buttons are another process's).
     public func describeDefaultButton() -> DefaultButtonInfo {
         switch Background.wait(0.6, { [self] in defaultButton() }) {
         case .finished(let info): return info
@@ -205,24 +206,38 @@ extension MacDesktop {
     func defaultButton() -> DefaultButtonInfo {
         do {
             guard let window = try returnWindow() else { return .noButton }
-            guard let button = try ax.element(kAXDefaultButtonAttribute, of: window) else { return .noButton }
+            guard let button = try ax.element(kAXDefaultButtonAttribute, of: window.element) else {
+                // A sheet's buttons can be another process's (the save panel's), which it doesn't name: not read.
+                return window.isSheet ? .unknown : .noButton
+            }
+
             return .named((try? ax.name(of: button)) ?? "")
         } catch {
             return .unknown
         }
     }
 
-    /// The window Return goes to: the window or sheet around the focused element, else the focused window of the app
-    /// taking the keys, or the sheet open on it. Throws when the app taking the keys can't be told.
-    func returnWindow() throws -> AnyObject? {
-        if let focused = try ax.focusedElement(), let window = try ax.element(kAXWindowAttribute, of: focused) {
-            return window
+    /// The window Return goes to: the window around the focused element, else the focused window of the app taking the
+    /// keys; or the sheet open on it, which takes the keys while it's open. Throws when the app taking the keys can't
+    /// be told.
+    func returnWindow() throws -> (element: AnyObject, isSheet: Bool)? {
+        var found: AnyObject?
+        if let focused = try ax.focusedElement() {
+            found = try ax.element(kAXWindowAttribute, of: focused)
         }
 
-        guard let app = try ax.focusedApplication() else { throw AXNoAnswer() }
-        guard let window = try ax.element(kAXFocusedWindowAttribute, of: app) else { return nil }
-        let sheet = try ax.elements(kAXChildrenAttribute, of: window).first { (try? ax.role(of: $0)) == kAXSheetRole }
-        return sheet ?? window
+        if found == nil {
+            guard let app = try ax.focusedApplication() else { throw AXNoAnswer() }
+            found = try ax.element(kAXFocusedWindowAttribute, of: app)
+        }
+
+        guard let window = found else { return nil }
+        if try ax.role(of: window) == kAXSheetRole {
+            return (element: window, isSheet: true)
+        }
+
+        let sheet = try ax.elements(kAXChildrenAttribute, of: window).last { (try? ax.role(of: $0)) == kAXSheetRole }
+        return sheet.map { (element: $0, isSheet: true) } ?? (element: window, isSheet: false)
     }
 
     // MARK: Choosing the text box

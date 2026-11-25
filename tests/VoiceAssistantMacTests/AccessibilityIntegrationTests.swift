@@ -163,10 +163,38 @@ final class AccessibilityIntegrationTests: XCTestCase {
     func testFindsTheInstalledApps() {
         let apps = desktop.discoverApps()
         Self.report("installed apps found: \(apps.count)")
+        let workspace = SystemWorkspace()
+        let safari = workspace.folderItems(URL(fileURLWithPath: "/Applications", isDirectory: true))
+            .first { $0.url.lastPathComponent == "Safari.app" }
+        let identifier = safari.flatMap { workspace.appBundle(at: $0.url)?.bundleIdentifier } ?? "none"
+        Self.report("/Applications lists Safari.app: \(safari != nil), its bundle identifier: \(identifier)")
+        Self.report("Safari's entry starts \(apps.first { $0.name == "Safari" }?.launch ?? "nothing")")
         let launches = Set(apps.map(\.launch))
         for app in ["com.apple.TextEdit", "com.apple.Safari", "com.apple.finder", "com.apple.Terminal"] {
             XCTAssertTrue(launches.contains(app), app)
         }
+    }
+
+    /// A dialog's default button, which Return presses whatever has the focus: osascript's, in a process of its own.
+    func testReadsADialogsDefaultButton() async throws {
+        let dialog = Process()
+        dialog.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        dialog.arguments = [
+            "-e", "activate",
+            "-e", "display dialog \"Voice Assistant test\" buttons {\"Cancel\", \"Erase\"} default button \"Erase\" "
+                + "giving up after 20",
+        ]
+        try dialog.run()
+        defer { dialog.terminate() }
+
+        var button = DefaultButtonInfo.unknown
+        for _ in 0..<50 where button != .named("Erase") {
+            try await Task.sleep(nanoseconds: 200_000_000)
+            button = desktop.describeDefaultButton()
+        }
+
+        XCTAssertEqual(.named("Erase"), button)
+        Self.report("the dialog's app in front: \(desktop.foregroundWindow()?.processName ?? "none")")
     }
 
     // MARK: Helpers
