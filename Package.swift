@@ -30,7 +30,12 @@ let package = Package(
             dependencies: ["VoiceAssistantBoard", .product(name: "ThumbFreeCore", package: "thumbfree-mac")]),
         .target(
             name: "VoiceAssistantMac",
-            dependencies: ["VoiceAssistantCore", .product(name: "ThumbFreeMac", package: "thumbfree-mac")]),
+            dependencies: [
+                "VoiceAssistantCore",
+                .product(name: "ThumbFreeMac", package: "thumbfree-mac"),
+                // The AI brain's downloads go through ThumbFree's model store (resumed, checked by SHA-256).
+                .product(name: "ThumbFreeSpeech", package: "thumbfree-mac"),
+            ]),
         // The app's own layer, ported from windows-voice-assistant src/VoiceAssistant.App: settings and what it has
         // learned, the assistant host (always listening for "Hey Jarvis", Fn dictation), the AI brain's server, the
         // menu bar, the pill, the window and the reminders. The VoiceAssistant executable is a thin launcher for it.
