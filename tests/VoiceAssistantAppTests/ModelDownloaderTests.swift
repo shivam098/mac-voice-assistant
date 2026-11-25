@@ -137,7 +137,7 @@ final class ModelDownloaderTests: XCTestCase {
 }
 
 /// Serves files over HTTP to the sessions that use it, without a network (URLProtocol): the whole file, or the rest of
-/// it for a Range request, in 256 KB pieces, so progress is reported along the way.
+/// it for a Range request, in 256 KB pieces 20 ms apart, so progress is reported along the way.
 final class FakeServer: URLProtocol {
     static let host = "models.test"
 
@@ -200,6 +200,11 @@ final class FakeServer: URLProtocol {
             let end = min(at + 256 * 1024, body.count)
             client?.urlProtocol(self, didLoad: Data(body[at..<end]))
             at = end
+            if at < body.count {
+                // URLSession merges pieces that arrive together: once, a 3 MB file reached the store in two deliveries,
+                // so only two percents were reported. A pause lets it hand each piece on before the next.
+                Thread.sleep(forTimeInterval: 0.02)
+            }
         }
 
         client?.urlProtocolDidFinishLoading(self)
