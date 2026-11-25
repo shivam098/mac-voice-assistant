@@ -211,6 +211,8 @@ final class UIRenderTests: XCTestCase {
             bar.layer?.backgroundColor = (dark ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.94, alpha: 1)).cgColor
             for mode in modes {
                 let icon = NSImageView(image: AppLogo.menuBarImage(dot: MenuBar.dot(mode)))
+                // The menu bar draws a template image in its text colour.
+                icon.contentTintColor = .labelColor
                 icon.imageScaling = .scaleProportionallyUpOrDown
                 icon.translatesAutoresizingMaskIntoConstraints = false
                 icon.widthAnchor.constraint(equalToConstant: 20 * scale).isActive = true

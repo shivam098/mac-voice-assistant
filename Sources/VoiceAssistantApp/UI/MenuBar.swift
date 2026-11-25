@@ -268,12 +268,12 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         }
 
         guard !modifiers.isEmpty, !key.isEmpty else { return nil }
-        if key.count == 1 {
-            return (key.lowercased(), modifiers)
-        }
-
         if let named = namedKeys[String(key)] {
             return (named, modifiers)
+        }
+
+        if key.count == 1 {
+            return (key.lowercased(), modifiers)
         }
 
         if key.first == "F", let number = Int(key.dropFirst()), (1...20).contains(number) {

@@ -153,7 +153,8 @@ struct MenuPicture: View {
             }
         }
         .padding(.vertical, 5)
-        .frame(width: 380)
+        .frame(minWidth: 300)
+        .fixedSize()
         .background(RoundedRectangle(cornerRadius: 7).fill(Color(white: 0.965)))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.black.opacity(0.15), lineWidth: 0.5))
         .padding(16)
