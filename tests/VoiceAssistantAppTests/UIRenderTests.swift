@@ -72,16 +72,20 @@ final class UIRenderTests: XCTestCase {
     @MainActor
     func testTheMenuAndTheMenuBarIcon() {
         let recorder = MenuRecorder()
-        recorder.state = MenuState(hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: true)
+        recorder.state = MenuState(
+            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: true,
+            untypedText: "Call me at 4 PM.")
         let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: recorder.actions)
         menu.showMode(.standby)
         menu.prepare()
-        Renderer.render(MenuPicture(menu.menu), "menu-1-waiting-for-hey-jarvis")
+        Renderer.render(MenuPicture(menu.menu), "menu-1-waiting-for-hey-jarvis-with-untyped-text")
         if let languages = menu.language.submenu {
             Renderer.render(MenuPicture(languages), "menu-2-dictation-language")
         }
 
+        recorder.state.untypedText = nil
         menu.showMode(.paused)
+        menu.prepare()
         Renderer.render(MenuPicture(menu.menu), "menu-3-paused")
 
         let icons = Self.iconStrip()

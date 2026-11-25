@@ -8,15 +8,16 @@ import XCTest
 final class MenuBarTests: XCTestCase {
     @MainActor
     func testTheMenuHasWindowsItemsInOrderWithTheMacsKeys() throws {
-        let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: MenuRecorder().actions)
+        let recorder = MenuRecorder()
+        let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: recorder.actions)
         let items = menu.menu.items
 
         XCTAssertEqual(
-            items.map { $0.isSeparatorItem ? "—" : $0.title },
+            Self.shown(menu),
             [
                 "Open Voice Assistant", "Idea board", "—", "Starting…", "Start listening", "Paste last dictation",
-                "Dictation language (⌃⇧H)", "Copy text that wasn't typed", "—", "What you can say", "Settings…",
-                "Always show status pill", "Start when I log in", "—", "Quit Voice Assistant",
+                "Dictation language (⌃⇧H)", "—", "What you can say", "Settings…", "Always show status pill",
+                "Start when I log in", "—", "Quit Voice Assistant",
             ])
         let font = try XCTUnwrap(items[0].attributedTitle?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
         XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.bold), "Open Voice Assistant is bold")
@@ -27,6 +28,15 @@ final class MenuBarTests: XCTestCase {
                 "English", "Hindi + English — fast (typed in Roman letters)",
                 "Hindi + English — accurate (slower; 830 MB download)",
             ])
+
+        // The text that couldn't be typed is offered while there's some ("The text is in the menu bar.").
+        recorder.state.untypedText = "Call me at 4 PM."
+        menu.menuNeedsUpdate(menu.menu)
+        XCTAssertEqual(
+            Array(Self.shown(menu)[6...7]), ["Dictation language (⌃⇧H)", "Copy text that wasn't typed"])
+        recorder.state.untypedText = ""
+        menu.prepare()
+        XCTAssertTrue(menu.copyUntyped.isHidden)
 
         // The hotkeys show as macOS shows shortcuts; ⌘, and ⌘Q are the Mac's own.
         let keys = [menu.toggle, menu.pasteLast, menu.settings, menu.quit].map(\.keyEquivalent)
@@ -58,11 +68,14 @@ final class MenuBarTests: XCTestCase {
     @MainActor
     func testEachItemDoesWhatItSaysAndTheTicksFollowTheApp() {
         let recorder = MenuRecorder()
-        recorder.state = MenuState(hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: false)
+        recorder.state = MenuState(
+            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: false,
+            untypedText: "Call me at 4 PM.")
         let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: recorder.actions)
         XCTAssertEqual([menu.english, menu.hinglish, menu.hinglishAccurate].map(\.state), [.off, .on, .off])
         XCTAssertEqual(menu.showPill.state, .on)
         XCTAssertEqual(menu.startAtLogin.state, .off)
+        XCTAssertFalse(menu.copyUntyped.isHidden)
 
         for item in [
             menu.openApp, menu.ideaBoard, menu.toggle, menu.pasteLast, menu.english, menu.hinglish,
@@ -80,12 +93,13 @@ final class MenuBarTests: XCTestCase {
                 "pill always shown false", "starts at login true", "quit",
             ])
 
-        // Opening the menu again reads the ticks again.
+        // Opening the menu again reads it all again: once copied, the text that wasn't typed is gone.
         recorder.state = MenuState(hinglish: true, accurate: true, pillAlwaysShown: false, startsAtLogin: true)
         menu.menuNeedsUpdate(menu.menu)
         XCTAssertEqual([menu.english, menu.hinglish, menu.hinglishAccurate].map(\.state), [.off, .off, .on])
         XCTAssertEqual(menu.showPill.state, .off)
         XCTAssertEqual(menu.startAtLogin.state, .on)
+        XCTAssertTrue(menu.copyUntyped.isHidden)
         menu.click(menu.showPill)
         menu.click(menu.startAtLogin)
         XCTAssertEqual(recorder.calls.suffix(2), ["pill always shown true", "starts at login false"])
@@ -144,6 +158,12 @@ final class MenuBarTests: XCTestCase {
 
     private static func functionKey(_ code: Int) -> String {
         String(Character(Unicode.Scalar(UInt32(code))!))
+    }
+
+    /// The menu as a person sees it: the items that aren't hidden, "—" for a line.
+    @MainActor
+    private static func shown(_ menu: StatusMenu) -> [String] {
+        menu.menu.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title }
     }
 }
 

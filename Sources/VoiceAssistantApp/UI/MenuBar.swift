@@ -19,7 +19,7 @@ public struct MenuHotkeys: Equatable, Sendable {
     }
 }
 
-/// What the menu ticks, read each time it opens (Windows' `menu.Opening`).
+/// What the menu shows ticked or offers, read each time it opens (Windows' `menu.Opening`).
 public struct MenuState: Equatable, Sendable {
     /// Dictation is in Hindi + English, with the fast model or, when `accurate`, the larger one.
     public var hinglish: Bool
@@ -28,12 +28,19 @@ public struct MenuState: Equatable, Sendable {
     public var pillAlwaysShown: Bool
     /// "Start when I log in" is on.
     public var startsAtLogin: Bool
+    /// The dictated text that couldn't be typed, kept for the menu (the interaction controller's `untypedText`; the
+    /// pill said "The text is in the menu bar."). "Copy text that wasn't typed" shows only while there's some.
+    public var untypedText: String?
 
-    public init(hinglish: Bool = false, accurate: Bool = false, pillAlwaysShown: Bool = true, startsAtLogin: Bool = false) {
+    public init(
+        hinglish: Bool = false, accurate: Bool = false, pillAlwaysShown: Bool = true, startsAtLogin: Bool = false,
+        untypedText: String? = nil
+    ) {
         self.hinglish = hinglish
         self.accurate = accurate
         self.pillAlwaysShown = pillAlwaysShown
         self.startsAtLogin = startsAtLogin
+        self.untypedText = untypedText
     }
 }
 
@@ -47,7 +54,7 @@ public struct MenuActions {
     public var pasteLast: @MainActor () -> Void
     /// English, or Hindi + English with the fast or the accurate model (the host's `SetDictationLanguage`).
     public var setDictationLanguage: @MainActor (_ hinglish: Bool, _ accurate: Bool) -> Void
-    /// Copies the text that wasn't typed, or says there's none (the host's `CopyUntypedText`).
+    /// Copies the text that wasn't typed (`MenuState.untypedText`) and forgets it: the host's `CopyUntypedText`.
     public var copyUntyped: @MainActor () -> Void
     /// The pill always on screen, or only while it has something to show (the pill's `minimized`).
     public var setPillAlwaysShown: @MainActor (Bool) -> Void
@@ -137,9 +144,10 @@ public final class MenuBar {
 }
 
 /// The menu (Windows' tray menu, `TrayIcon`): open the window or the idea board; the status and pausing or starting
-/// listening; pasting the last dictation; the dictation language; copying the text that wasn't typed; what you can say,
-/// Settings, the pill and starting at login; and Quit. The hotkeys show as macOS shows shortcuts; ⌘, and ⌘Q are the
-/// Mac's for Settings and Quit. Built apart from the menu bar item, so tests read it and click it.
+/// listening; pasting the last dictation; the dictation language; copying the text that wasn't typed, while there's
+/// some; what you can say, Settings, the pill and starting at login; and Quit. The hotkeys show as macOS shows
+/// shortcuts; ⌘, and ⌘Q are the Mac's for Settings and Quit. Built apart from the menu bar item, so tests read it and
+/// click it.
 @MainActor
 public final class StatusMenu: NSObject, NSMenuDelegate {
     public let menu = NSMenu()
@@ -233,7 +241,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         toggle.title = (mode == .paused ? "Start listening" : "Pause listening") + toggleSuffix
     }
 
-    /// Brings the ticks up to date before the menu opens (Windows' `menu.Opening`).
+    /// Brings the menu up to date before it opens (Windows' `menu.Opening`): the ticks, and the text that wasn't typed.
     public func prepare() {
         let state = actions.state()
         showPill.state = state.pillAlwaysShown ? .on : .off
@@ -241,6 +249,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         english.state = state.hinglish ? .off : .on
         hinglish.state = state.hinglish && !state.accurate ? .on : .off
         hinglishAccurate.state = state.hinglish && state.accurate ? .on : .off
+        copyUntyped.isHidden = state.untypedText?.isEmpty ?? true
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
