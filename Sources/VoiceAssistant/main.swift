@@ -1,3 +1,3 @@
-import VoiceAssistantCore
+import VoiceAssistantApp
 
-print("Voice Assistant for Mac \(VoiceAssistantCore.version), on ThumbFree core \(VoiceAssistantCore.thumbFreeCoreVersion): in development.")
+print("Voice Assistant for Mac \(VoiceAssistantApp.version) (\(VoiceAssistantApp.bundleIdentifier)): in development.")

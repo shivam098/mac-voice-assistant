@@ -31,14 +31,22 @@ let package = Package(
         .target(
             name: "VoiceAssistantMac",
             dependencies: ["VoiceAssistantCore", .product(name: "ThumbFreeMac", package: "thumbfree-mac")]),
-        .executableTarget(
-            name: "VoiceAssistant",
+        // The app's own layer, ported from windows-voice-assistant src/VoiceAssistant.App: settings and what it has
+        // learned, the assistant host (always listening for "Hey Jarvis", Fn dictation), the AI brain's server, the
+        // menu bar, the pill, the window and the reminders. The VoiceAssistant executable is a thin launcher for it.
+        .target(
+            name: "VoiceAssistantApp",
             dependencies: [
-                "VoiceAssistantCore", "VoiceAssistantMac",
+                "VoiceAssistantBoard", "VoiceAssistantCore", "VoiceAssistantMac",
+                .product(name: "ThumbFreeCore", package: "thumbfree-mac"),
+                .product(name: "ThumbFreeMac", package: "thumbfree-mac"),
                 .product(name: "ThumbFreeSpeech", package: "thumbfree-mac"),
             ]),
+        .executableTarget(name: "VoiceAssistant", dependencies: ["VoiceAssistantApp"]),
         // Lowercase tests/, as in the ThumbFree repos.
         .testTarget(name: "VoiceAssistantBoardTests", dependencies: ["VoiceAssistantBoard"], path: "tests/VoiceAssistantBoardTests"),
         .testTarget(name: "VoiceAssistantCoreTests", dependencies: ["VoiceAssistantCore"], path: "tests/VoiceAssistantCoreTests"),
+        .testTarget(name: "VoiceAssistantMacTests", dependencies: ["VoiceAssistantMac"], path: "tests/VoiceAssistantMacTests"),
+        .testTarget(name: "VoiceAssistantAppTests", dependencies: ["VoiceAssistantApp"], path: "tests/VoiceAssistantAppTests"),
     ]
 )
