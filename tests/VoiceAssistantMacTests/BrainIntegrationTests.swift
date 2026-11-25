@@ -77,7 +77,16 @@ final class BrainIntegrationTests: XCTestCase {
 
         try checkServer(files)
 
-        // 2. Start, ask, unload.
+        // A stand-in app starts its own llama-server meanwhile (the first start in a process is the slow one), to be
+        // killed in step 3.
+        let report = (NSTemporaryDirectory() as NSString).appendingPathComponent("stand-in-\(UUID().uuidString).txt")
+        let standInLog = report + ".log"
+        let app = try BrainStandIn.start(
+            "VoiceAssistantMacTests.BrainIntegrationTests/testStandInAppWithLlamaServer", report: report,
+            log: standInLog)
+        defer { BrainStandIn.kill(app) }
+
+        // 2. Start, ask, unload, and load again for the next request.
         let log = (NSTemporaryDirectory() as NSString).appendingPathComponent("llama-server-\(UUID().uuidString).log")
         let brain = Self.brain(files, keepLoaded: 2, output: log)
         defer {
@@ -102,7 +111,6 @@ final class BrainIntegrationTests: XCTestCase {
         XCTAssertTrue(BrainProcesses.waitUntilGone(server.serverID, 5), "llama-server still runs after the unload")
         Self.say("unloaded after \(Self.milliseconds(since: started)) ms unused; pid \(server.serverID) is gone")
 
-        // The next request loads it again.
         started = Date()
         let again = try await brain.complete(LlamaServerClient.warmUpMessages)
         let reloaded = try XCTUnwrap(brain.serverProcess)
@@ -111,14 +119,8 @@ final class BrainIntegrationTests: XCTestCase {
         Self.say("loaded again (pid \(reloaded.serverID)) and answered in \(Self.milliseconds(since: started)) ms")
 
         // 3. The app is killed: the server goes with it.
-        let report = (NSTemporaryDirectory() as NSString).appendingPathComponent("stand-in-\(UUID().uuidString).txt")
-        let standInLog = report + ".log"
-        let app = try BrainStandIn.start(
-            "VoiceAssistantMacTests.BrainIntegrationTests/testStandInAppWithLlamaServer", report: report,
-            log: standInLog)
         let standInOutput = { (try? String(contentsOfFile: standInLog, encoding: .utf8)) ?? "" }
         guard let ids = BrainStandIn.read(report, 180, from: app) else {
-            BrainStandIn.kill(app)
             return XCTFail("The stand-in app started no llama-server:\n\(standInOutput())")
         }
 
