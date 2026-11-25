@@ -205,8 +205,8 @@ final class BrainKeysTests: XCTestCase {
         }
     }
 
-    /// Macs have no F21 to F24: there they're refused with any modifiers, as other keys the Mac has no key for are, so
-    /// the desktop is never asked for them. Windows presses them as before.
+    /// Macs have no F21 to F24: there they're refused with any modifiers, saying a Mac keyboard has no such key, so the
+    /// desktop is never asked for them. Windows normalizes and presses them as before (its vectors are the C#'s).
     func testTheMacHasNoF21ToF24() {
         let chords = Self.allChords.filter { chord in ["F21", "F22", "F23", "F24"].contains { chord.hasSuffix($0) } }
         XCTAssertEqual(64, chords.count)
@@ -214,11 +214,14 @@ final class BrainKeysTests: XCTestCase {
             let windows = BrainSafety.keyPress(chord, .windows)
             let mac = BrainSafety.keyPress(chord, .mac)
             XCTAssertNil(mac.keys, chord)
-            XCTAssertEqual(windows.refusal ?? "a Mac has no key for it", mac.refusal, chord)
+            XCTAssertNil(mac.pressable, chord)
+            XCTAssertEqual(windows.refusal ?? "a Mac keyboard has no such key", mac.refusal, chord)
             XCTAssertEqual(chord, windows.keys, chord)
             XCTAssertEqual(chord.contains("Win") ? nil : chord, windows.pressable, chord)
         }
 
+        XCTAssertEqual("F24", BrainSafety.normalizeChord("f24"))
+        XCTAssertEqual("a Mac has no key for it", BrainSafety.refusalReason("Win+D", .mac))
         XCTAssertEqual("F20", BrainSafety.keyPress("F20", .mac).pressable)
         XCTAssertEqual("Alt+Cmd+F20", BrainSafety.keyPress("Ctrl+Alt+F20", .mac).pressable)
     }

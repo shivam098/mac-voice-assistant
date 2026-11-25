@@ -1140,7 +1140,7 @@ class BrainControllerTests: XCTestCase {
 
     func testWindowsKeysTheMacHasNoKeyForAreRefusedThere() async throws {
         frontWindow(notepad)
-        for chord in ["Win+D", "F21"] {
+        for chord in ["Win+D", "Win+Left"] {
             desktop.actions.removeAll()
             brain.enqueue(planReply("Done.", [("press", chord, "")]))
             try await say("Do the thing.")
@@ -1149,6 +1149,26 @@ class BrainControllerTests: XCTestCase {
                 XCTAssertEqual("I won't press \(chord): a Mac has no key for it.", lastMessage)
             } else {
                 XCTAssertEqual(["keys:\(chord)"], desktop.actions)
+            }
+        }
+    }
+
+    /// F21 to F24, however a plan spells them: Windows presses them, as in the C#. Mac keyboards stop at F20, so the
+    /// Mac refuses them in the core and says why, and its desktop is never asked to press them (it would fail the run).
+    func testF21ToF24ArePressedOnWindowsAndRefusedInTheCoreOnTheMac() async throws {
+        frontWindow(notepad)
+        for keys in ["f21", "Ctrl+F22", "shift + f23", "F24"] {
+            desktop.actions.removeAll()
+            brain.enqueue(planReply("Done.", [("press", keys, "")]))
+            try await say("Do the thing.")
+            let chord = BrainSafety.normalizeChord(keys) ?? ""
+            if mac {
+                XCTAssertEqual([], desktop.actions, keys)
+                XCTAssertEqual(.warning, statuses.last?.kind, keys)
+                XCTAssertEqual("I won't press \(chord): a Mac keyboard has no such key.", lastMessage)
+            } else {
+                XCTAssertEqual(["keys:\(chord)"], desktop.actions, keys)
+                XCTAssertEqual(["Pressed \(chord).", "Done."], statuses.messages.lastItems(2), keys)
             }
         }
     }

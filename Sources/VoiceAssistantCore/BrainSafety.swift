@@ -14,7 +14,8 @@ import ThumbFreeCore
 ///   stays ⌃Tab and Ctrl+Backspace is ⌥⌫; Win+Up (maximize) has no Mac key, so the window in front is zoomed instead
 ///   (`BrainKeyPress.zooms`);
 /// - Alt+F4 and Ctrl+F4 are ⌘W, Ctrl+F5 ⇧⌘R, F11 ⌃⌘F, Win+Down ⌘M and Win+M ⌥⌘M;
-/// - the other Win chords, F21 to F24 (Macs stop at F20) and a modifier on its own have no Mac key and are refused;
+/// - the other Win chords, F21 to F24 (Mac keyboards stop at F20) and a modifier on its own have no Mac key and are
+///   refused;
 /// - Ctrl with an arrow, Backspace or Delete, and without Alt, becomes ⌥, the Mac's word and paragraph key
 ///   (Ctrl+Shift+Left is ⌥⇧←, Ctrl+Down ⌥↓); any other Ctrl becomes ⌘ (Ctrl+L is ⌘L, Ctrl+Space ⌘Space);
 /// - Alt, Shift and the keys stay as they are.
@@ -134,7 +135,9 @@ public enum BrainSafety {
         return DotNet.trimEnd(NetText.string(utf16: units[..<Swift.max(0, max - 1)])) + "…"
     }
 
-    /// "ctrl + w" → "Ctrl+W", "win+up" → "Win+Up", "m" → "M". Nil if a key isn't one the assistant can press.
+    /// "ctrl + w" → "Ctrl+W", "win+up" → "Win+Up", "m" → "M". Nil if a key isn't one the assistant can press. It's the
+    /// same on every platform, with F1 to F24 as in the C#: `keyPress` refuses the keys a platform doesn't have (F21 to
+    /// F24 on the Mac).
     public static func normalizeChord(_ keys: String?) -> String? {
         guard let keys, !DotNet.isNullOrWhiteSpace(keys) else { return nil }
         let parts = DotNet.split(DotNet.trim(keys), ["+"]).map { DotNet.trim($0) }
@@ -188,7 +191,7 @@ public enum BrainSafety {
             if let keys {
                 refusal = macRefusalReason(keys)
             } else {
-                refusal = "a Mac has no key for it"
+                refusal = macNoKeyReason(chord)
             }
         }
 
@@ -260,10 +263,17 @@ public enum BrainSafety {
     /// Keys Windows has and Macs don't: Mac keyboards stop at F20.
     private static let keysMacsLack = ["F21", "F22", "F23", "F24"]
 
+    /// Why the Mac has no chord for `chord`: a Mac keyboard has no such key (F21 to F24), or no Mac key does what it
+    /// does (the other Win chords, a modifier on its own).
+    private static func macNoKeyReason(_ chord: String) -> String {
+        NetText.contains(keysMacsLack, lastPiece(chord)) ? "a Mac keyboard has no such key" : "a Mac has no key for it"
+    }
+
     /// Keys whose Ctrl moves are the Mac's ⌥ moves: by word left and right, by paragraph up and down.
     private static let wordMoveKeys = ["Left", "Right", "Up", "Down", "Backspace", "Delete"]
 
-    /// The Mac chord for a chord a plan names (as `normalizeChord` writes it), or nil if the Mac has no key for it.
+    /// The Mac chord for a chord a plan names (as `normalizeChord` writes it), or nil if the Mac has no key for it: the
+    /// Win chords other than Win+Down and Win+M, F21 to F24, and a modifier on its own.
     static func macChord(_ chord: String) -> String? {
         guard DotNet.ordinalEquals(normalizeChord(chord) ?? "", chord) else { return nil }
         if let shortcut = Shortcut.allCases.first(where: {

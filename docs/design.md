@@ -96,7 +96,7 @@ The porting guide's capability map is the plan. These are the points it leaves o
   - The prompt and plans still name keys as on Windows (the prompt is Windows' byte for byte, as measured). Each
     chord is translated to its Mac chord and judged as pressed: ⌘Space, ⌥⌘⎋, ⌘Q, ⇧⌘Q, ⌃⌘Q, Trash and screenshot
     chords are refused, and ⌘W asks. The core presses only the chord it judged. Win+Up (maximize) zooms the window in
-    front instead, and chords the Mac has no key for (the other Win chords, F21 to F24) are refused.
+    front instead; the other Win chords have no Mac key, and a Mac keyboard has no F21 to F24, so those are refused.
   - A "yes" is needed for Backspace outside a text box, "Force Quit", "Open Anyway", Mac program files (`.app`,
     `.command`, `.pkg`, …), and for Return when the window's default button sends, deletes or runs something, or
     can't be read.
