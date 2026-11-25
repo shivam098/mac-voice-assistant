@@ -76,6 +76,9 @@ The porting guide's capability map is the plan. These are the points it leaves o
   - a chord presser for the core's Mac chords: letters typed by the current keyboard layout, `[` and `]`, "Delete" as
     ⌦ and "Backspace" as ⌫ (ThumbFreeMac's chord reader handles only the new-line keys), and F1 to F20: the core never
     asks for F21 to F24, which Macs don't have;
+  - **typing with line breaks** as one call (`typeText(_:newLineKeys:)`), which every typing and the "new line" command
+    use: under secure input (a password being typed, Terminal's Secure Keyboard Entry) nothing of it goes out, its
+    line breaks included, while keys asked for by name ("press enter", the brain's keys) still do, as on Windows;
   - a **zoom** for the window in front (`zoom`): the brain's plans maximize with Win+Up, which no Mac key does.
 - **The core's threading contract:** the app awaits each controller call before making the next, drops speech while
   the brain is running, and acts on `ControllerBusy` (a call that overlapped did nothing and says so).

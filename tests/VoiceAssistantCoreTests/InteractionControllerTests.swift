@@ -66,6 +66,55 @@ private final class FakeDesktop: JarvisDesktop {
     func backspace(_ count: Int) throws { actions.append("backspace:\(count)") }
 }
 
+/// What a typing throws under secure input (ThumbFreeMac's `PasteTyper.Failure.secureInput` on the Mac).
+private struct SecureInput: Error {}
+
+/// A desktop that types a typing's line breaks itself, as the Mac's does (`typeText(_:newLineKeys:)`, recorded as
+/// "lines(newLineKeys):text"), and can refuse a whole typing, as the Mac's does under secure input. Keys asked for by
+/// name still go out.
+private final class LineTypingDesktop: JarvisDesktop {
+    let brainPlatform: BrainPlatform
+    var actions: [String] = []
+    var foreground: WindowInfo?
+
+    /// What a typing throws, with nothing sent.
+    var typingFailure: Error?
+
+    init(_ platform: BrainPlatform) {
+        brainPlatform = platform
+    }
+
+    func foregroundWindow() -> WindowInfo? { foreground }
+
+    func openOrActivate(_ app: AppEntry, newWindow: Bool) async throws -> DesktopResult { .fail("nope") }
+
+    func prepareTextTarget(_ window: WindowInfo, profile: AppEntry?) async throws -> TextTargetResult {
+        TextTargetResult(success: true, message: "", hasTrailingText: false, focusIsEditable: true)
+    }
+
+    func focusSearchBox(_ window: WindowInfo) async throws -> TextTargetResult {
+        TextTargetResult(success: false, message: "no search box")
+    }
+
+    func checkFocusedField() -> AssistantFieldCheck { .safe }
+
+    func focusedTextEndsWithNonWhitespace() -> Bool? { false }
+
+    func typeText(_ text: String) throws { actions.append("type:\(text)") }
+
+    func typeText(_ text: String, newLineKeys: String) throws {
+        if let typingFailure {
+            throw typingFailure
+        }
+
+        actions.append("lines(\(newLineKeys)):\(text)")
+    }
+
+    func pressKeys(_ chord: String) throws { actions.append("keys:\(chord)") }
+
+    func backspace(_ count: Int) throws { actions.append("backspace:\(count)") }
+}
+
 /// windows-voice-assistant tests/VoiceAssistant.Core.Tests/InteractionControllerTests.cs: opening an app, typing into
 /// it and sending, "scratch that", what is refused, and the second dictation model.
 final class InteractionControllerTests: XCTestCase {
@@ -373,5 +422,71 @@ final class InteractionControllerTests: XCTestCase {
         try await controller.handleTranscript(
             "garbled", 0.9, followsForcedCut: true, dictationTranscript: { "aur phir hum chalenge" })
         XCTAssertEqual(["type:Aur phir hum chalenge"], desktop.actions.map { DotNet.trim($0) })
+    }
+
+    // MARK: Beyond the C# tests
+
+    private static let platforms: [(BrainPlatform, ShortcutKeys)] = [(.windows, .windows), (.mac, .mac)]
+
+    /// Typing into GitHub Copilot on a desktop that types a typing's line breaks itself.
+    private func startTypingOnLineTypingDesktop(_ platform: BrainPlatform, _ keys: ShortcutKeys) async throws
+        -> (LineTypingDesktop, InteractionController) {
+        let desktop = LineTypingDesktop(platform)
+        desktop.foreground = Self.copilot
+        let controller = InteractionController(
+            desktop, AppCatalog([Self.copilotApp]), CommandParser(keys: keys), options: Self.noWake)
+        controller.setListening(true)
+        try await controller.handleTranscript("Start typing.", 0.9)
+        XCTAssertEqual(.dictation, controller.mode)
+        return (desktop, controller)
+    }
+
+    /// A typing with line breaks (dictated or push-to-talk), "new line" and "new paragraph" each reach the desktop as
+    /// one typing with the app's new-line keys, so the desktop can refuse it whole. (The C# tests above check the
+    /// protocol's default, which types each line and presses the keys between them, as before.)
+    func testTypingsWithLineBreaksAndNewLinesReachTheDesktopAsOneTyping() async throws {
+        for (platform, keys) in Self.platforms {
+            let (desktop, controller) = try await startTypingOnLineTypingDesktop(platform, keys)
+            try await controller.handleTranscript("Um, shopping list colon milk new line eggs", 0.9)
+            try await controller.handleTranscript("New line.", 0.9)
+            try await controller.handleTranscript("New paragraph.", 0.9)
+            try controller.insertDictation("uh thanks for the update new line talk soon")
+            let typed = [
+                "lines(Shift+Enter):Shopping list: milk\nEggs", "lines(Shift+Enter):\n", "lines(Shift+Enter):\n\n",
+                "lines(Shift+Enter):Thanks for the update\nTalk soon",
+            ]
+            XCTAssertEqual(typed, desktop.actions, "\(platform.kind)")
+
+            // A typing can start with a line break, as "new line ls -la" does: still one typing.
+            try await controller.handleTranscript("New line ls -la", 0.9)
+            XCTAssertEqual(5, desktop.actions.count, "\(platform.kind)")
+            XCTAssertTrue(desktop.actions.last?.hasPrefix("lines(Shift+Enter):\n") == true, desktop.actions.last ?? "")
+        }
+    }
+
+    /// Where the desktop refuses a typing (the Mac's, under secure input), nothing of it goes out, not even the line
+    /// break a typing starts with (Return would run Terminal's command line), and the failure reaches the host as
+    /// typing failures do. Keys asked for by name ("press enter") still go out, as on Windows.
+    func testATypingTheDesktopRefusesSendsNothingButPressEnterStillPresses() async throws {
+        for (platform, keys) in Self.platforms {
+            let (desktop, controller) = try await startTypingOnLineTypingDesktop(platform, keys)
+            desktop.typingFailure = SecureInput()
+            for spoken in ["New line ls -la", "New line.", "New paragraph."] {
+                do {
+                    try await controller.handleTranscript(spoken, 0.9)
+                    XCTFail("\(platform.kind): “\(spoken)” wasn't refused.")
+                } catch {
+                    XCTAssertTrue(error is SecureInput, "\(platform.kind): \(spoken): \(error)")
+                }
+            }
+
+            XCTAssertThrowsError(try controller.insertDictation("new line rm -rf build")) { error in
+                XCTAssertTrue(error is SecureInput, "\(platform.kind): \(error)")
+            }
+
+            XCTAssertEqual([], desktop.actions, "\(platform.kind)")
+            try await controller.handleTranscript("Press enter.", 0.9)
+            XCTAssertEqual(["keys:Enter"], desktop.actions, "\(platform.kind)")
+        }
     }
 }
