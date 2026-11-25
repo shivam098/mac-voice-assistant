@@ -3,7 +3,7 @@ import XCTest
 @testable import VoiceAssistantCore
 
 /// The chord grammar `ShortcutKeys` documents for the desktop: modifiers in the order Ctrl, Alt, Shift, then Win
-/// (Windows) or Cmd (the Mac), then one key.
+/// (Windows) or Cmd (the Mac), then one key (F1 to F24, or F1 to F20 on the Mac).
 enum ChordGrammar {
     private static let named = [
         "Enter", "Tab", "Esc", "Space", "Home", "End", "PageUp", "PageDown", "Up", "Down", "Left", "Right", "Backspace",
@@ -11,10 +11,11 @@ enum ChordGrammar {
     ]
     private static let keys: Set<String> = Set(
         named + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".map { String($0) } + (1...24).map { "F\($0)" })
+    private static let notOnMacs: Set<String> = ["F21", "F22", "F23", "F24"]
 
     static func parses(_ chord: String, mac: Bool) -> Bool {
         let pieces = chord.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
-        guard let key = pieces.last, keys.contains(key) else { return false }
+        guard let key = pieces.last, keys.contains(key), !mac || !notOnMacs.contains(key) else { return false }
         let order = ["Ctrl", "Alt", "Shift", mac ? "Cmd" : "Win"]
         var next = 0
         for modifier in pieces.dropLast() {
@@ -70,14 +71,14 @@ final class BrainKeysTests: XCTestCase {
 
     func testTheMacPressesEachWindowsChordAsTheListSays() {
         let cases: [(windows: String, mac: String?, verdict: Verdict)] = [
-            // ShortcutKeys' shortcuts.
+            // ShortcutKeys' shortcuts. Win+Up (maximize) has no Mac key, and isn't refused: it zooms the window.
             ("Ctrl+A", "Cmd+A", .press), ("Ctrl+C", "Cmd+C", .refuse), ("Ctrl+V", "Cmd+V", .refuse),
             ("Ctrl+X", "Cmd+X", .refuse), ("Ctrl+Z", "Cmd+Z", .press), ("Ctrl+Y", "Shift+Cmd+Z", .press),
             ("Ctrl+S", "Cmd+S", .press), ("Ctrl+T", "Cmd+T", .press), ("Ctrl+W", "Cmd+W", .ask),
             ("Ctrl+Tab", "Ctrl+Tab", .press), ("Ctrl+Shift+Tab", "Ctrl+Shift+Tab", .press),
             ("Alt+Left", "Cmd+[", .press), ("Alt+Right", "Cmd+]", .press), ("Alt+Up", "Cmd+Up", .press),
             ("F5", "Cmd+R", .press), ("PageDown", "PageDown", .press), ("PageUp", "PageUp", .press),
-            ("Ctrl+Backspace", "Alt+Backspace", .ask), ("Win+Up", nil, .refuse),
+            ("Ctrl+Backspace", "Alt+Backspace", .ask), ("Win+Up", nil, .press),
             // The Win chords Windows allows, and one it doesn't.
             ("Win+Down", "Cmd+M", .press), ("Win+M", "Alt+Cmd+M", .press), ("Win+Left", nil, .refuse),
             ("Win+Right", nil, .refuse), ("Shift+Win+Left", nil, .refuse), ("Shift+Win+Right", nil, .refuse),
@@ -143,7 +144,7 @@ final class BrainKeysTests: XCTestCase {
             ("Ctrl+Alt+Shift+Backspace", "it empties the Trash"),
             ("Ctrl+D", "in a Save dialog it throws the changes away"), ("Ctrl+Alt+Down", "it opens the selected file"),
             ("Ctrl+Alt+F5", "it changes the accessibility settings"), ("Win+D", "a Mac has no key for it"),
-            ("Win+Up", "a Mac has no key for it"), ("Ctrl+C", "I type text myself rather than use the clipboard"),
+            ("Win+Up", nil), ("Ctrl+C", "I type text myself rather than use the clipboard"),
             ("Win+R", "it can run commands"), ("Ctrl+Shift+4", "it takes screenshots"), ("Ctrl+L", nil),
         ]
         check(cases) { BrainSafety.refusalReason($0, .mac) }
@@ -177,6 +178,49 @@ final class BrainKeysTests: XCTestCase {
 
         XCTAssertFalse(BrainSafety.keyPress("Delete", .mac).focusDecides)
         XCTAssertEqual(.refuse, verdict("Ctrl+Alt+Backspace", .mac, focus: box))
+    }
+
+    /// Windows' maximize keys, however a plan spells them, have no Mac key: on the Mac nothing is pressed, and the
+    /// window is zoomed instead, with no "yes", as Windows presses them. No other chord zooms.
+    func testMaximizeZoomsTheWindowOnTheMac() {
+        for spoken in ["win+up", "Windows + Up", "super+uparrow"] {
+            guard let chord = BrainSafety.normalizeChord(spoken) else {
+                XCTFail(spoken)
+                continue
+            }
+
+            let mac = BrainSafety.keyPress(chord, .mac)
+            XCTAssertTrue(mac.zooms, spoken)
+            XCTAssertNil(mac.refusal, spoken)
+            XCTAssertNil(mac.pressable, spoken)
+            XCTAssertFalse(mac.needsConfirmation(focus: nil), spoken)
+            let windows = BrainSafety.keyPress(chord, .windows)
+            XCTAssertFalse(windows.zooms, spoken)
+            XCTAssertEqual("Win+Up", windows.pressable, spoken)
+        }
+
+        for chord in Self.allChords where chord != "Win+Up" {
+            XCTAssertFalse(BrainSafety.keyPress(chord, .mac).zooms, chord)
+            XCTAssertFalse(BrainSafety.keyPress(chord, .windows).zooms, chord)
+        }
+    }
+
+    /// Macs have no F21 to F24: there they're refused with any modifiers, as other keys the Mac has no key for are, so
+    /// the desktop is never asked for them. Windows presses them as before.
+    func testTheMacHasNoF21ToF24() {
+        let chords = Self.allChords.filter { chord in ["F21", "F22", "F23", "F24"].contains { chord.hasSuffix($0) } }
+        XCTAssertEqual(64, chords.count)
+        for chord in chords {
+            let windows = BrainSafety.keyPress(chord, .windows)
+            let mac = BrainSafety.keyPress(chord, .mac)
+            XCTAssertNil(mac.keys, chord)
+            XCTAssertEqual(windows.refusal ?? "a Mac has no key for it", mac.refusal, chord)
+            XCTAssertEqual(chord, windows.keys, chord)
+            XCTAssertEqual(chord.contains("Win") ? nil : chord, windows.pressable, chord)
+        }
+
+        XCTAssertEqual("F20", BrainSafety.keyPress("F20", .mac).pressable)
+        XCTAssertEqual("Alt+Cmd+F20", BrainSafety.keyPress("Ctrl+Alt+F20", .mac).pressable)
     }
 
     /// A chord is judged once, with the keys that are pressed: on Windows the chord as named, on the Mac its Mac chord;
@@ -213,8 +257,10 @@ final class BrainKeysTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(mac, windows, chord)
             guard windows != .refuse else { continue }
             allowed += 1
-            guard let pressed = BrainSafety.keyPress(chord, .mac).keys else {
-                XCTAssertEqual(.refuse, mac, chord)
+            let press = BrainSafety.keyPress(chord, .mac)
+            guard let pressed = press.keys else {
+                // No Mac key: refused, unless it zooms the window (maximize).
+                XCTAssertEqual(press.zooms ? Verdict.press : .refuse, mac, chord)
                 continue
             }
 

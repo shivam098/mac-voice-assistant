@@ -39,6 +39,10 @@ public struct BrainPlatform: Equatable, Sendable {
     /// What the messages call the file manager ("I don't type in File Explorer…").
     public let fileManagerName: String
 
+    /// Why nothing is typed or pressed when the front window can't take this app's input
+    /// (`AssistantFieldCheck.elevated`): on Windows, it runs as administrator.
+    public let elevatedRefusal: String
+
     /// Words on buttons that send, publish, install, run or agree to something: clicking one needs a "yes" (on top of
     /// `TargetResolver.isDestructive`).
     public let sendWords: [String]
@@ -58,13 +62,14 @@ public struct BrainPlatform: Equatable, Sendable {
 
     private init(
         kind: Kind, commandProcesses: [String], browserProcesses: [String], fileManagerProcesses: [String],
-        fileManagerName: String, sendWords: [String], programFileTypes: [String]
+        fileManagerName: String, elevatedRefusal: String, sendWords: [String], programFileTypes: [String]
     ) {
         self.kind = kind
         self.commandProcesses = commandProcesses
         self.browserProcesses = browserProcesses
         self.fileManagerProcesses = fileManagerProcesses
         self.fileManagerName = fileManagerName
+        self.elevatedRefusal = elevatedRefusal
         self.sendWords = sendWords
         self.programFileTypes = programFileTypes
         commands = IgnoreCaseSet(commandProcesses)
@@ -108,8 +113,9 @@ public struct BrainPlatform: Equatable, Sendable {
             "CCleanerBrowser", "whale", "maxthon", "slimjet", "iron", "seamonkey", "palemoon", "basilisk",
             "mullvadbrowser",
         ],
-        fileManagerProcesses: ["explorer"], fileManagerName: "File Explorer", sendWords: windowsSendWords,
-        programFileTypes: windowsProgramFileTypes)
+        fileManagerProcesses: ["explorer"], fileManagerName: "File Explorer",
+        elevatedRefusal: "That window runs as administrator; Windows won't let me type into it.",
+        sendWords: windowsSendWords, programFileTypes: windowsProgramFileTypes)
 
     /// Terminal and the other terminals, Spotlight and Finder (docs/design.md); as the C# lists PowerToys Run and
     /// PowerShell ISE, Task Manager, regedit and mmc, also the launchers Raycast, Alfred and LaunchBar, the apps that
@@ -146,6 +152,7 @@ public struct BrainPlatform: Equatable, Sendable {
             "ai.perplexity.comet", "com.sigmaos.sigmaos.macos",
         ],
         fileManagerProcesses: ["com.apple.finder"], fileManagerName: "Finder",
+        elevatedRefusal: "That window won't let me type into it.",
         sendWords: windowsSendWords + ["force quit", "open anyway"],
         programFileTypes: windowsProgramFileTypes + [
             "app", "command", "tool", "terminal", "pkg", "mpkg", "webloc", "inetloc", "fileloc", "mobileconfig",
@@ -155,6 +162,7 @@ public struct BrainPlatform: Equatable, Sendable {
     public static func == (a: BrainPlatform, b: BrainPlatform) -> Bool {
         a.kind == b.kind && a.commandProcesses == b.commandProcesses && a.browserProcesses == b.browserProcesses
             && a.fileManagerProcesses == b.fileManagerProcesses && a.fileManagerName == b.fileManagerName
-            && a.sendWords == b.sendWords && a.programFileTypes == b.programFileTypes
+            && a.elevatedRefusal == b.elevatedRefusal && a.sendWords == b.sendWords
+            && a.programFileTypes == b.programFileTypes
     }
 }

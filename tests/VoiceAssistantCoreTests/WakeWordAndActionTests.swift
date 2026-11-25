@@ -344,4 +344,23 @@ final class WakeWordAndActionTests: XCTestCase {
         XCTAssertFalse(desktop.actions.contains { $0.hasPrefix("keys:") })
         XCTAssertEqual(Self.notes, controller.target)
     }
+
+    /// A window that won't take this app's input (`.elevated`) is refused in the platform's words: Windows' are the
+    /// C#'s, and a Mac's never name Windows.
+    func testAWindowThatWontTakeInputIsRefusedInThePlatformsWords() async throws {
+        let cases: [(BrainPlatform, ShortcutKeys, String)] = [
+            (.windows, .windows, "That window runs as administrator; Windows won't let me type into it."),
+            (.mac, .mac, "That window won't let me type into it."),
+        ]
+        for (platform, keys, message) in cases {
+            let (desktop, controller, statuses) = makeController(CommandParser(keys: keys))
+            desktop.brainPlatform = platform
+            desktop.foreground = Self.chrome
+            desktop.field = .elevated
+            try await controller.handleTranscript("Hey Jarvis, new tab.", 0.9)
+            XCTAssertEqual([], desktop.actions, message)
+            XCTAssertEqual(.warning, statuses.last?.kind, message)
+            XCTAssertEqual(message, statuses.last?.message)
+        }
+    }
 }
