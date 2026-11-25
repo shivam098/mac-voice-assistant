@@ -456,6 +456,11 @@ final class InteractionControllerTests: XCTestCase {
                 "lines(Shift+Enter):Thanks for the update\nTalk soon",
             ]
             XCTAssertEqual(typed, desktop.actions, "\(platform.kind)")
+
+            // A typing can start with a line break, as "new line ls -la" does: still one typing.
+            try await controller.handleTranscript("New line ls -la", 0.9)
+            XCTAssertEqual(5, desktop.actions.count, "\(platform.kind)")
+            XCTAssertTrue(desktop.actions.last?.hasPrefix("lines(Shift+Enter):\n") == true, desktop.actions.last ?? "")
         }
     }
 
