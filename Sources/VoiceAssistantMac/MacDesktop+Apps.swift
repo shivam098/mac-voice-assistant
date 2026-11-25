@@ -289,8 +289,8 @@ extension MacDesktop {
 
     /// "Maximize" on the Mac (`ShortcutKeys.mac.maximize` is `.zoomThroughAccessibility`, where Windows presses
     /// Win+Up): the window fills the usable part of its screen, without the menu bar and the Dock, its position and
-    /// size set through Accessibility. Not full screen, which gives the window a Space of its own. The core has no
-    /// command that asks for it yet.
+    /// size set through Accessibility. Not full screen, which gives the window a Space of its own. The AI brain asks for
+    /// it (`JarvisDesktop.zoom`) where a plan presses Windows' maximize keys.
     public func zoom(_ window: WindowInfo) async throws -> DesktopResult {
         let screens = await workspace.screens()
         let name = label(window)

@@ -50,6 +50,8 @@ final class KeysTests: XCTestCase {
         }
     }
 
+    /// Keys a Mac doesn't have and chords outside the grammar. F21 to F24 are among them: the core refuses them on the
+    /// Mac before it asks, and the presser refuses them too.
     func testRefusesWhatAMacCantPress() {
         for text in [
             "Win+Up", "Win", "F21", "F24", "F0", "Ctrl+A+B", "Ctrl", "Shift+Cmd", "", "+", "Cmd+;", "Hyper+X",
@@ -60,7 +62,8 @@ final class KeysTests: XCTestCase {
     }
 
     /// Everything the core presses on the Mac: its shortcuts, "press …" keys, edits, and the Mac chords the AI brain
-    /// may press. Only F21 to F24, which Windows has and Macs don't, are left out.
+    /// may press for every Windows chord a plan can name, F21 to F24 too (the core refuses those on the Mac, so it never
+    /// asks for them).
     func testPressesEveryChordTheCorePresses() {
         var chords = Shortcut.allCases.map { ShortcutKeys.mac.keys(for: $0) } + [ShortcutKeys.mac.deleteWordBefore]
         chords += [
@@ -71,7 +74,7 @@ final class KeysTests: XCTestCase {
         let keys = [
             "Enter", "Tab", "Esc", "Backspace", "Delete", "Space", "Home", "End", "Up", "Down", "Left", "Right",
             "PageUp", "PageDown",
-        ] + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".map { String($0) } + (1...20).map { "F\($0)" }
+        ] + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".map { String($0) } + (1...24).map { "F\($0)" }
         for mask in 0..<16 {
             let chosen = modifiers.enumerated().filter { mask & (1 << $0.offset) != 0 }.map(\.element)
             for key in keys {
