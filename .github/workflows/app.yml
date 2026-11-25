@@ -1,0 +1,55 @@
+name: App
+
+# Voice Assistant.app, universal and signed ad hoc, in a .dmg to test on a Mac (scripts/make-app.sh). The .dmg is this
+# run's artifact.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "scripts/**"
+      - "assets/**"
+      - "Package.swift"
+      - ".github/workflows/app.yml"
+  pull_request:
+    paths:
+      - "Sources/**"
+      - "scripts/**"
+      - "assets/**"
+      - "Package.swift"
+      - ".github/workflows/app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Voice Assistant.app in a .dmg (signed ad hoc)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      # The whole history, so the script finds the latest v* tag for the version.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Tools
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # thumbfree-mac at the tip of its main, as the Mac workflow builds it.
+      - name: Build the app and the disk image
+        run: ./scripts/make-app.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VoiceAssistant-dmg
+          path: dist/VoiceAssistant-*.dmg
+          if-no-files-found: error
