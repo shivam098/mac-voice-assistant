@@ -27,7 +27,7 @@ public struct AppSettings: Equatable, Sendable {
     public var hinglishAccurateModelFile = "ggml-hinglish-apex-q8_0.bin"
 
     /// Switches dictation between English and Hindi + English. Windows' Alt+Shift+H types "Ó" on a Mac (see `hotkey`).
-    public var dictationLanguageHotkey = "Ctrl+Shift+H"
+    public var dictationLanguageHotkey = AppSettings.defaultDictationLanguageHotkey
 
     /// Decoding threads: two thirds of the processors, 2 to 8.
     public var threads = AppSettings.defaultThreads
@@ -65,7 +65,7 @@ public struct AppSettings: Equatable, Sendable {
     /// H) with Control+Shift, which no standard macOS shortcut uses with a letter or Space, which types no character
     /// (Option and Option+Shift with a letter type one, as Windows' Alt+Shift+Z and Alt+Shift+H would), and which
     /// isn't VoiceOver's Control+Option. Chords are written as the core's `ShortcutKeys` writes them.
-    public var hotkey = "Ctrl+Shift+Space"
+    public var hotkey = AppSettings.defaultHotkey
 
     public var commandPrefix = "computer"
 
@@ -127,7 +127,7 @@ public struct AppSettings: Equatable, Sendable {
     public var maxDictationSeconds = 600
 
     /// Pastes the last dictation again. Windows' Alt+Shift+Z types "¸" on a Mac (see `hotkey`).
-    public var pasteLastHotkey = "Ctrl+Shift+Z"
+    public var pasteLastHotkey = AppSettings.defaultPasteLastHotkey
 
     public var removeFillerWords = true
 
@@ -194,6 +194,54 @@ public struct AppSettings: Equatable, Sendable {
         AppEntry(
             name: name, aliases: aliases, launch: bundle, processNames: [bundle], submitKeys: "Enter",
             newLineKeys: "Shift+Enter", searchKeys: "Cmd+L", addressBarKeys: "Cmd+L")
+    }
+}
+
+// MARK: The Mac's hotkeys
+
+extension AppSettings {
+    /// The Mac's default hotkeys (see `hotkey`).
+    public static let defaultHotkey = "Ctrl+Shift+Space"
+    public static let defaultPasteLastHotkey = "Ctrl+Shift+Z"
+    public static let defaultDictationLanguageHotkey = "Ctrl+Shift+H"
+
+    /// Windows' default hotkeys, which a settings.json copied from Windows holds.
+    public static let windowsHotkey = "Ctrl+Alt+Space"
+    public static let windowsPasteLastHotkey = "Alt+Shift+Z"
+    public static let windowsDictationLanguageHotkey = "Alt+Shift+H"
+
+    /// The pause hotkey as the Mac registers it. Windows' defaults clash with macOS or type a character here (see
+    /// `hotkey`), so in a settings.json copied from Windows a hotkey that is Windows' default chord, in any case or
+    /// order, means the Mac's default. Any other hotkey is used as written, Ctrl as ⌃, Alt as ⌥, Shift as ⇧ and Win as
+    /// ⌘. The file keeps what it says, so it means the same on Windows.
+    public var macHotkey: String {
+        HotkeyChord.onMac(hotkey, windowsDefault: Self.windowsHotkey, macDefault: Self.defaultHotkey)
+    }
+
+    /// The paste-last hotkey as the Mac registers it (see `macHotkey`).
+    public var macPasteLastHotkey: String {
+        HotkeyChord.onMac(
+            pasteLastHotkey, windowsDefault: Self.windowsPasteLastHotkey, macDefault: Self.defaultPasteLastHotkey)
+    }
+
+    /// The dictation language hotkey as the Mac registers it (see `macHotkey`).
+    public var macDictationLanguageHotkey: String {
+        HotkeyChord.onMac(
+            dictationLanguageHotkey, windowsDefault: Self.windowsDictationLanguageHotkey,
+            macDefault: Self.defaultDictationLanguageHotkey)
+    }
+
+    /// A hotkey as macOS shows shortcuts ("⌃⇧Space"); as written when it can't be read.
+    public static func hotkeyLabel(_ chord: String) -> String {
+        (try? HotkeyChord.parse(chord))?.displayName ?? chord
+    }
+
+    /// The dictation key as people know it: "Fn" or "Right Option".
+    public var dictationKeyLabel: String {
+        switch dictationKey {
+        case .fn: return "Fn"
+        case .rightOption: return "Right Option"
+        }
     }
 }
 
@@ -678,13 +726,8 @@ extension AppSettings {
         }
     }
 
-    /// The key's name in settings.json, as ThumbFree for Mac writes it.
-    static func dictationKeyName(_ key: FnTapKeys.TapKey) -> String {
-        switch key {
-        case .fn: return "Fn"
-        case .rightOption: return "RightOption"
-        }
-    }
+    /// The key's name in settings.json, as ThumbFree for Mac writes it ("Fn" or "RightOption").
+    static func dictationKeyName(_ key: FnTapKeys.TapKey) -> String { key.settingsName }
 }
 
 /// A { } of text by text in settings.json (`replacements`, `snippets`), in the file's order, which decides which of two

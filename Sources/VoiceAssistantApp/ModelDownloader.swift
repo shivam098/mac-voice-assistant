@@ -42,9 +42,16 @@ public struct ModelDownloader: Sendable {
 
     private let catalog: [ModelFile]
 
-    /// Downloads into `paths.models`, and finds models in `paths.sharedModels` too.
+    /// What its downloads say they come from (their User-Agent), rather than ThumbFree's store's own name.
+    public static let userAgent = "VoiceAssistant"
+
+    /// Downloads into `paths.models`, and finds models in `paths.sharedModels` too. ModelStore's `removeLeftovers`
+    /// is never called for this folder; anything that does must keep this catalog's paths, never ThumbFree's.
     public init(paths: AppPaths, session: URLSession? = nil) {
-        self.init(store: ModelStore(primaryFolder: paths.models, sharedFolders: paths.sharedModels, session: session))
+        self.init(
+            store: ModelStore(
+                primaryFolder: paths.models, sharedFolders: paths.sharedModels, userAgent: Self.userAgent,
+                session: session))
     }
 
     /// - Parameter catalog: The models it can download; tests use their own.
