@@ -108,6 +108,41 @@ final class AccessibilityIntegrationTests: XCTestCase {
         try desktop.pressKeys("Esc")
     }
 
+    /// "Open TextEdit" with TextEdit open, wanting a new window: its new-window keys (⌘N, as the layout types N), then
+    /// the window that wasn't there, told apart by its number.
+    func testOpensANewTextEditWindow() async throws {
+        let first = try await desktop.openOrActivate(Self.textEdit, newWindow: false)
+        let window = try XCTUnwrap(first.window, first.message)
+        var withKeys = Self.textEdit
+        withKeys.newWindowKeys = "Cmd+N"
+        let second = try await desktop.openOrActivate(withKeys, newWindow: true)
+        XCTAssertEqual("Opened a new TextEdit window.", second.message)
+        let fresh = try XCTUnwrap(second.window)
+        XCTAssertFalse(fresh.sameWindow(window))
+        XCTAssertTrue(fresh.sameWindow(desktop.foregroundWindow()))
+    }
+
+    /// TextEdit's find bar has a search field, which the scan finds and focuses; its document is the largest text area.
+    func testFindsTheSearchFieldAndTheTextArea() async throws {
+        let opened = try await desktop.openOrActivate(Self.textEdit, newWindow: false)
+        let window = try XCTUnwrap(opened.window, opened.message)
+        try desktop.pressKeys("Cmd+F")
+        try await Self.settle()
+
+        let token = WorkToken()
+        let area = try XCTUnwrap(desktop.findTextArea(window, "Largest", nil, token), "the document")
+        XCTAssertEqual(kAXTextAreaRole, try desktop.ax.role(of: area))
+        XCTAssertNotNil(desktop.findSearchBox(window, token), "the find bar's search field")
+
+        XCTAssertEqual(.done, desktop.ax.set(kAXFocusedAttribute, true, of: area))
+        try await Self.settle()
+        XCTAssertEqual(true, desktop.describeFocus()?.editable)
+        let searched = try await desktop.focusSearchBox(window)
+        XCTAssertTrue(searched.success, searched.message)
+        XCTAssertFalse(desktop.ax.isSame(try XCTUnwrap(desktop.focus()), as: area))
+        Self.report("the find bar's field is named: \(!(desktop.describeFocus()?.name ?? "").isEmpty)")
+    }
+
     /// The window fills the part of the screen apps use.
     func testZoomsTextEdit() async throws {
         let opened = try await desktop.openOrActivate(Self.textEdit, newWindow: false)
@@ -138,6 +173,7 @@ final class AccessibilityIntegrationTests: XCTestCase {
 
     static func report(_ line: String) {
         print("AX test: \(line)")
+        fflush(stdout)
     }
 
     /// Time for TextEdit to take the keys.

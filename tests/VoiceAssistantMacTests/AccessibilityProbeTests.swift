@@ -1,19 +1,20 @@
 import AppKit
 import ApplicationServices
-import Carbon.HIToolbox
 import XCTest
 
-/// What the Mac running the tests lets this process do (GitHub's macOS runner image grants Accessibility to /bin/bash
-/// and to its agent in TCC.db): whether it's trusted for Accessibility and may post events, and whether it can read the
-/// Dock, Finder and a window of its own, press that window's button and type into its box. It reports what worked in
-/// lines starting "AX probe:", as counts, roles and outcomes, never other apps' names or titles, and never fails.
+/// What the Mac running the tests lets this process do. GitHub's macOS runner image grants Accessibility to /bin/bash
+/// and to its agent in TCC.db (actions/runner-images, configure-tccdb-macos.sh), and the agent starts the job's
+/// processes. This reports whether the test process is trusted for Accessibility and may post events, the processes
+/// that started it, and whether it can read the Dock and Finder, in lines starting "AX probe:": counts, roles and
+/// outcomes, never other apps' names or titles. It never fails.
+///
+/// A window of the test process itself can't be read: AppKit doesn't serve Accessibility in a process that hasn't
+/// launched as an app (the first run read "notImplemented" and the window never became key), and launching it in the
+/// test process (`finishLaunching`) stopped the tests. AccessibilityIntegrationTests uses TextEdit instead.
 final class AccessibilityProbeTests: XCTestCase {
-    @MainActor
     func testWhatThisMacAllows() {
-        let trusted = AXIsProcessTrusted()
-        let mayPost = CGPreflightPostEventAccess()
-        Probe.report("AXIsProcessTrusted: \(trusted)")
-        Probe.report("CGPreflightPostEventAccess: \(mayPost)")
+        Probe.report("AXIsProcessTrusted: \(AXIsProcessTrusted())")
+        Probe.report("CGPreflightPostEventAccess: \(CGPreflightPostEventAccess())")
         Probe.report("CGPreflightListenEventAccess: \(CGPreflightListenEventAccess())")
         Probe.report("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
         Probe.report("processes, this one first: \(Probe.processChain())")
@@ -22,145 +23,17 @@ final class AccessibilityProbeTests: XCTestCase {
             Probe.report("\(browser) installed: \(FileManager.default.fileExists(atPath: browser))")
         }
 
-        let others = Probe.Box()
-        Probe.runOffMain(others) { box in
-            box.add(Probe.focusedApplication())
-            box.add(Probe.describeApp("com.apple.dock"))
-            box.add(Probe.describeApp("com.apple.finder"))
-        }
-
-        others.lines.forEach(Probe.report)
-        probeOwnWindow(mayPost: mayPost)
-    }
-
-    /// A window of this process with a button and a text box: read through Accessibility from another thread while
-    /// the main thread handles events (Accessibility asks the main thread), its button pressed (AXPress) and its box
-    /// given a value, then a key posted to it. The first run, without `finishLaunching` and with only the run loop
-    /// running, found Accessibility not implemented for this process and its window not key; this one launches the app
-    /// and handles its events.
-    @MainActor
-    private func probeOwnWindow(mayPost: Bool) {
-        let app = NSApplication.shared
-        Probe.report("activation policy set: \(app.setActivationPolicy(.accessory))")
-        app.finishLaunching()
-        let window = NSWindow(
-            contentRect: NSRect(x: 240, y: 240, width: 420, height: 160), styleMask: [.titled, .closable, .resizable],
-            backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.title = "Voice Assistant probe"
-        let clicks = Clicks()
-        let button = NSButton(title: "Probe button", target: clicks, action: #selector(Clicks.clicked(_:)))
-        button.frame = NSRect(x: 20, y: 100, width: 160, height: 32)
-        let field = NSTextField(frame: NSRect(x: 20, y: 40, width: 300, height: 24))
-        field.placeholderString = "Probe box"
-        window.contentView?.addSubview(button)
-        window.contentView?.addSubview(field)
-        window.makeKeyAndOrderFront(nil)
-        app.activate(ignoringOtherApps: true)
-        _ = window.makeFirstResponder(field)
-        Probe.handleEvents(1)
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid()
-        Probe.report("own app active: \(app.isActive), its window key: \(window.isKeyWindow), in front: \(front)")
-
-        let own = Probe.Box()
-        let pid = getpid()
-        Probe.runOffMain(own, handlingEvents: true) { box in Probe.readOwnApp(pid, box) }
-        own.lines.forEach(Probe.report)
-        Probe.handleEvents(0.5)
-        Probe.report("button's action ran after AXPress: \(clicks.count) time(s)")
-        Probe.report("box shows the value Accessibility set: \(field.stringValue == Probe.setValue)")
-
-        if mayPost {
-            _ = window.makeFirstResponder(field)
-            field.stringValue = ""
-            Probe.handleEvents(0.3)
-            Probe.postKey(CGKeyCode(kVK_ANSI_X))
-            Probe.handleEvents(1)
-            let typed = field.stringValue
-            let outcome = typed == "x" ? "arrived in the box" : typed.isEmpty ? "nothing arrived" : "other text"
-            Probe.report("posted key x: \(outcome)")
-        }
-
-        window.orderOut(nil)
-        window.close()
-        app.deactivate()
-        Probe.handleEvents(0.3)
-    }
-}
-
-/// Counts presses of the probe's button.
-private final class Clicks: NSObject {
-    private(set) var count = 0
-
-    @objc func clicked(_ sender: Any?) {
-        count += 1
+        Probe.report(Probe.focusedApplication())
+        Probe.report(Probe.describeApp("com.apple.dock"))
+        Probe.report(Probe.describeApp("com.apple.finder"))
     }
 }
 
 private enum Probe {
-    static let setValue = "set by Accessibility"
-
-    /// Lines written by another thread, read on the main thread once it's done.
-    final class Box: @unchecked Sendable {
-        private let lock = NSLock()
-        private var written: [String] = []
-        private var finished = false
-
-        func add(_ line: String) {
-            lock.withLock { written.append(line) }
-        }
-
-        func finish() {
-            lock.withLock { finished = true }
-        }
-
-        var isFinished: Bool { lock.withLock { finished } }
-
-        var lines: [String] { lock.withLock { written } }
-    }
-
+    /// Written at once, so a test that stops the process can't lose it.
     static func report(_ line: String) {
         print("AX probe: \(line)")
-    }
-
-    /// Handles this app's events for `seconds`, as NSApplication.run does.
-    @MainActor
-    static func handleEvents(_ seconds: TimeInterval) {
-        let end = Date(timeIntervalSinceNow: seconds)
-        while Date() < end {
-            handleEvent(until: min(end, Date(timeIntervalSinceNow: 0.05)))
-        }
-    }
-
-    @MainActor
-    private static func handleEvent(until date: Date) {
-        let app = NSApplication.shared
-        if let event = app.nextEvent(matching: .any, until: date, inMode: .default, dequeue: true) {
-            app.sendEvent(event)
-        }
-    }
-
-    /// Runs `work` on another thread while the main thread runs its run loop or, `handlingEvents`, handles this app's
-    /// events; 30 s at most.
-    @MainActor
-    static func runOffMain(_ box: Box, handlingEvents: Bool = false, _ work: @escaping @Sendable (Box) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            work(box)
-            box.finish()
-        }
-
-        let end = Date(timeIntervalSinceNow: 30)
-        while !box.isFinished, Date() < end {
-            if handlingEvents {
-                handleEvent(until: Date(timeIntervalSinceNow: 0.05))
-            } else {
-                RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
-            }
-        }
-
-        if !box.isFinished {
-            box.add("gave up waiting after 30 s")
-        }
+        fflush(stdout)
     }
 
     static func focusedApplication() -> String {
@@ -193,73 +66,6 @@ private enum Probe {
             + "\(windows.elements.count) window(s) (\(name(windows.error))), "
             + "\(children.elements.count) child(ren) (\(name(children.error))) with roles \(childRoles), "
             + "\(grandchildren) grandchild(ren)"
-    }
-
-    /// This process's own window through Accessibility: its button and box found by their title and placeholder,
-    /// the button pressed, the box given a value.
-    static func readOwnApp(_ pid: pid_t, _ box: Box) {
-        let app = AXUIElementCreateApplication(pid)
-        _ = AXUIElementSetMessagingTimeout(app, 5)
-        let windows = elements(kAXWindowsAttribute, of: app)
-        box.add("own app: \(windows.elements.count) window(s) (\(name(windows.error)))")
-        let (focusedError, focused) = copy(kAXFocusedUIElementAttribute, of: app)
-        box.add(
-            "own app's focused element: \(name(focusedError)) "
-                + (focused.flatMap(element).flatMap { string(kAXRoleAttribute, of: $0) } ?? "none"))
-
-        var button: AXUIElement?
-        var field: AXUIElement?
-        var roles: [String: Int] = [:]
-        var queue = windows.elements
-        var visited = 0
-        while !queue.isEmpty, visited < 300 {
-            let node = queue.removeFirst()
-            visited += 1
-            let role = string(kAXRoleAttribute, of: node) ?? "?"
-            roles[role, default: 0] += 1
-            if role == kAXButtonRole, string(kAXTitleAttribute, of: node) == "Probe button" {
-                button = node
-            }
-
-            if role == kAXTextFieldRole, string("AXPlaceholderValue", of: node) == "Probe box" {
-                field = node
-            }
-
-            queue += elements(kAXChildrenAttribute, of: node).elements
-        }
-
-        box.add("own window's elements by role: \(roles.sorted { $0.key < $1.key })")
-        box.add("found its button: \(button != nil), its box: \(field != nil)")
-        if let button {
-            box.add("AXPress on the button: \(name(AXUIElementPerformAction(button, kAXPressAction as CFString)))")
-            var frame = "?"
-            if let position = copy(kAXPositionAttribute, of: button).1,
-               let size = copy(kAXSizeAttribute, of: button).1 {
-                frame = "\(CFGetTypeID(position) == AXValueGetTypeID()), \(CFGetTypeID(size) == AXValueGetTypeID())"
-            }
-
-            box.add("button's position and size are AXValues: \(frame)")
-        }
-
-        if let field {
-            let set = AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, setValue as CFString)
-            box.add("set the box's AXValue: \(name(set))")
-            let focus = AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, NSNumber(value: true))
-            box.add("set the box's AXFocused: \(name(focus))")
-        }
-    }
-
-    /// A key down and up for `key`, posted at the HID level, as a person's key would arrive.
-    static func postKey(_ key: CGKeyCode) {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else {
-            report("couldn't make key events")
-            return
-        }
-
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
     }
 
     /// This process and the ones that started it, as `ps` names them.

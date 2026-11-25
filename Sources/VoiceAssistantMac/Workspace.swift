@@ -209,6 +209,8 @@ public final class SystemWorkspace: WorkspaceSystem, @unchecked Sendable {
         }
     }
 
+    /// An app bundle, or a link to one: /Applications/Safari.app links to Safari in the system's app cryptex
+    /// (/System/Cryptexes/App/System/Applications) since macOS 13.
     public func appBundle(at url: URL) -> AppBundle? {
         guard url.pathExtension.caseInsensitiveCompare("app") == .orderedSame else { return nil }
         var name = FileManager.default.displayName(atPath: url.path)
@@ -216,7 +218,8 @@ public final class SystemWorkspace: WorkspaceSystem, @unchecked Sendable {
             name = String(name.dropLast(4))
         }
 
-        return AppBundle(url: url, bundleIdentifier: Bundle(url: url)?.bundleIdentifier, displayName: name)
+        let bundle = Bundle(url: url.resolvingSymlinksInPath())
+        return AppBundle(url: url, bundleIdentifier: bundle?.bundleIdentifier, displayName: name)
     }
 
     private static func running(_ app: NSRunningApplication) -> RunningApp? {
