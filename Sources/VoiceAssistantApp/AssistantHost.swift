@@ -448,7 +448,7 @@ public final class AssistantHost: @unchecked Sendable {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let self, !Task.isCancelled else { return }
-                self.enqueue { [self] in _ = controller.tick() }
+                self.enqueue { [self] in _ = self.controller.tick() }
             }
         }
     }
