@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # The whole history, so the script finds the latest v* tag for the version.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -48,7 +48,7 @@ jobs:
       - name: Build the app and the disk image
         run: ./scripts/make-app.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: VoiceAssistant-dmg
           path: dist/VoiceAssistant-*.dmg

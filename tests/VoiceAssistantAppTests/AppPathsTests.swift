@@ -38,7 +38,8 @@ final class AppPathsTests: XCTestCase {
         // The board is VoiceAssistantBoard's store in board.json.
         let board = try BoardStore(path: paths.boardFile)
         try board.add(.todo, "renew passport")
-        XCTAssertTrue(TestFiles.text(paths.boardFile).contains("renew passport"))
+        XCTAssertTrue(TestFiles.exists(paths.boardFile))
+        XCTAssertEqual(try BoardStore(path: paths.boardFile).items.map(\.text), ["Renew passport"])
     }
 
     func testTheBrainFolderIsTheSettingWhenThereIsOne() {
