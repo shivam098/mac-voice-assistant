@@ -166,6 +166,12 @@ public protocol JarvisDesktop: AnyObject {
 
     func typeText(_ text: String) throws
 
+    /// Types `text`, pressing `newLineKeys` for each line break. Every typing with line breaks comes here, and the "new
+    /// line" command too, so a desktop can refuse a whole typing, its line breaks included (the Mac's does while secure
+    /// input is on); keys asked for by name stay with `pressKeys`. Default: `typeText` for each line's text and
+    /// `pressKeys` for each line break, in order, as the C# does.
+    func typeText(_ text: String, newLineKeys: String) throws
+
     /// Presses a chord such as "Shift+Enter" or one from a `ShortcutKeys`.
     func pressKeys(_ chord: String) throws
 
@@ -243,6 +249,18 @@ public protocol JarvisDesktop: AnyObject {
 }
 
 extension JarvisDesktop {
+    public func typeText(_ text: String, newLineKeys: String) throws {
+        for (i, line) in DotNet.split(text, ["\n"]).enumerated() {
+            if i > 0 {
+                try pressKeys(newLineKeys)
+            }
+
+            if !line.isEmpty {
+                try typeText(line)
+            }
+        }
+    }
+
     public func readTextBeforeCaret() -> CaretText? { nil }
 
     public func pressKeysRepeated(_ chord: String, _ count: Int) throws {

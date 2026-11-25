@@ -551,10 +551,9 @@ public final class InteractionController {
         case .newLine, .newParagraph:
             guard ensureTargetFocused(heard, nil) else { return false }
             let lines = command.kind == .newLine ? 1 : 2
-            for _ in 0..<lines {
-                try desktop.pressKeys(newLineKeys)
-            }
 
+            // A typing, so it's refused where typing is (the Mac's secure input), unlike "press enter".
+            try desktop.typeText(String(repeating: "\n", count: lines), newLineKeys: newLineKeys)
             segments.append(lines)
             needsLeadingSpace = false
             endsSentence = true
@@ -1108,22 +1107,12 @@ public final class InteractionController {
         report(.success, "Typed.", heard)
     }
 
-    /// Types the text, pressing the new-line keys for each line break. The count of text elements and line breaks.
+    /// Types the text with the desktop pressing the new-line keys for each line break, as one typing
+    /// (`JarvisDesktop.typeText(_:newLineKeys:)`). The count of text elements and line breaks.
     func typeWithNewLines(_ text: String, _ newLineKeys: String) throws -> Int {
-        var count = 0
-        for (i, part) in DotNet.split(text, ["\n"]).enumerated() {
-            if i > 0 {
-                try desktop.pressKeys(newLineKeys)
-                count += 1
-            }
-
-            if !part.isEmpty {
-                try desktop.typeText(part)
-                count += NetText.textElementCount(part)
-            }
-        }
-
-        return count
+        try desktop.typeText(text, newLineKeys: newLineKeys)
+        let lines = DotNet.split(text, ["\n"])
+        return lines.count - 1 + lines.reduce(0) { $0 + NetText.textElementCount($1) }
     }
 
     /// Refuses password fields and windows that can't take this app's input (on Windows, administrator windows), and,
