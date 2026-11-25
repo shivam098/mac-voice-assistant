@@ -242,8 +242,9 @@ struct BrainBenchReport {
         }
 
         guard promptMs > 0, replyMs > 0 else { return "not reported" }
-        return "\(Int((promptTokens / promptMs * 1000).rounded())) tokens/s reading prompts, "
-            + "\(Int((replyTokens / replyMs * 1000).rounded())) tokens/s writing replies"
+        return String(
+            format: "%.1f tokens/s reading prompts, %.1f tokens/s writing replies", promptTokens / promptMs * 1000,
+            replyTokens / replyMs * 1000)
     }
 
     /// The job's summary. Windows' column is its v0.12.1 bench run (speeds summed over its 25 requests as `speeds`
@@ -271,7 +272,7 @@ struct BrainBenchReport {
             | Slowest request | \(Self.seconds(slowest)) | 7.0 s (the first, with an empty prompt cache) |
             | First load (start to ready) | \(Self.seconds(loaded * 1000)) | 7–14 s |
             | llama-server's peak memory | \(memory) | not measured |
-            | Speed | \(speeds) | 154 tokens/s reading prompts, 20 tokens/s writing replies |
+            | Speed | \(speeds) | 154.1 tokens/s reading prompts, 20.1 tokens/s writing replies |
 
             | # | Request | This Mac | Time | Windows | Windows' time | Plan |
             |---|---|---|---|---|---|---|

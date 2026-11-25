@@ -2,17 +2,12 @@ name: Brain bench
 
 # The AI brain measured as Windows measures it (windows-voice-assistant tools/BrainSpike): its 25 requests through the
 # app's prompt and plan reader and LlamaBrain's llama-server, with the real Qwen3 4B model, on GitHub's Apple silicon
-# runner (llama.cpp's Metal build, on the runner's virtual graphics chip) and its Intel runner (the x64 build, the
-# processor only). Each job prints every plan, writes a summary to the job's page and keeps it as an artifact. Started
-# by hand: the model is 2.4 GB, kept between runs.
+# runner (llama.cpp's Metal build) and its Intel runner (the x64 build, the processor only). The Apple silicon runner's
+# virtual graphics chip lacks simdgroup reduction, so llama.cpp keeps the weights on its processor: the scores count,
+# but its times and memory aren't a real Mac's. Each job prints every plan, writes a summary to the job's page and
+# keeps it, with llama-server's log, as an artifact. Started by hand: the model is 2.4 GB, kept between runs.
 on:
   workflow_dispatch:
-  # Until this file is on main, where workflow_dispatch can reach it: pushes to the bench's branch run it.
-  push:
-    branches: [brain-2]
-    paths:
-      - .github/workflows/brain-bench.yml
-      - tests/VoiceAssistantMacTests/BrainBench*.swift
 
 concurrency:
   group: brain-bench-${{ github.ref }}
