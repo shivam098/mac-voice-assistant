@@ -40,3 +40,10 @@ newest thumbfree-mac:
 swift build
 swift test
 ```
+
+`scripts/make-app.sh` builds `Voice Assistant.app` (Apple silicon and Intel, signed ad hoc) and
+`VoiceAssistant-<version>.dmg` in `dist/`. The App workflow runs it for every pull request and every change to `main`
+that touches the app, and keeps the `.dmg` as the run's artifact (`VoiceAssistant-dmg`). To try one, open the `.dmg`,
+drag the app to Applications, open it, and the first time choose System Settings › Privacy & Security › Open Anyway.
+For now it's an icon in the menu bar that starts the log (`~/Library/Logs/VoiceAssistant`) and the settings
+(`~/Library/Application Support/VoiceAssistant/settings.json`), and quits.

@@ -47,6 +47,14 @@ let package = Package(
         .testTarget(name: "VoiceAssistantBoardTests", dependencies: ["VoiceAssistantBoard"], path: "tests/VoiceAssistantBoardTests"),
         .testTarget(name: "VoiceAssistantCoreTests", dependencies: ["VoiceAssistantCore"], path: "tests/VoiceAssistantCoreTests"),
         .testTarget(name: "VoiceAssistantMacTests", dependencies: ["VoiceAssistantMac"], path: "tests/VoiceAssistantMacTests"),
-        .testTarget(name: "VoiceAssistantAppTests", dependencies: ["VoiceAssistantApp"], path: "tests/VoiceAssistantAppTests"),
+        .testTarget(
+            name: "VoiceAssistantAppTests",
+            dependencies: [
+                "VoiceAssistantApp", "VoiceAssistantBoard", "VoiceAssistantCore",
+                .product(name: "ThumbFreeCore", package: "thumbfree-mac"),
+                .product(name: "ThumbFreeMac", package: "thumbfree-mac"),
+                .product(name: "ThumbFreeSpeech", package: "thumbfree-mac"),
+            ],
+            path: "tests/VoiceAssistantAppTests"),
     ]
 )
