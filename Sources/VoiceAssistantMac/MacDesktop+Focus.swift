@@ -66,8 +66,8 @@ extension MacDesktop {
     }
 
     /// The default button of the window Return goes to (AXDefaultButton), 0.6 s at most: its name (empty when it can't
-    /// be read) when it has one; `.unknown` when that window can't be told or doesn't answer, or when it's a sheet whose
-    /// default button can't be read (the save panel's buttons are another process's).
+    /// be read) when it has one; `.unknown` when that window can't be told or doesn't answer, or when it's a sheet
+    /// whose default button can't be read (the save panel's buttons are another process's).
     public func describeDefaultButton() -> DefaultButtonInfo {
         switch Background.wait(0.6, { [self] in defaultButton() }) {
         case .finished(let info): return info

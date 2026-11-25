@@ -104,7 +104,9 @@ final class AccessibilityIntegrationTests: XCTestCase {
             button = desktop.describeDefaultButton()
         }
 
+        // The save panel's buttons are another process's: its sheet is found, its default button can't be read.
         Self.report("default button with the Save sheet open: \(Self.describe(button))")
+        XCTAssertNotEqual(.noButton, button)
         try desktop.pressKeys("Esc")
     }
 
@@ -155,7 +157,7 @@ final class AccessibilityIntegrationTests: XCTestCase {
         let element = try XCTUnwrap(desktop.windowElement(window))
         let frame = try XCTUnwrap(desktop.ax.frame(of: element))
         let screen = try XCTUnwrap(screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) })
-        Self.report("zoomed to the usable part of its screen: \(frame.integral == screen.visibleFrame.integral)")
+        Self.report("zoomed: window \(frame.integral), usable part of its screen \(screen.visibleFrame.integral)")
         XCTAssertEqual(screen.visibleFrame.width, frame.width, accuracy: 2)
         XCTAssertEqual(screen.visibleFrame.minY, frame.minY, accuracy: 2)
     }
