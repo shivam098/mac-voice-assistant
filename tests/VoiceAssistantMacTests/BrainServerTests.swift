@@ -45,7 +45,13 @@ final class BrainServerTests: XCTestCase {
         realClock: Bool = false
     ) -> LlamaBrain {
         let clock = self.clock!
-        let now: @Sendable () -> TimeInterval = realClock ? { LlamaBrain.monotonicNow() } : { clock.now }
+        let now: @Sendable () -> TimeInterval
+        if realClock {
+            now = { LlamaBrain.monotonicNow() }
+        } else {
+            now = { clock.now }
+        }
+
         let brain = LlamaBrain(
             files: files, keepLoaded: keepLoaded, http: llama, launcher: launcher, unavailableReason: unavailable,
             startTimeout: startTimeout, healthCheckInterval: 0.002, idleCheckInterval: idleCheckInterval, now: now)
