@@ -246,6 +246,8 @@ struct BrainBenchReport {
             + "\(Int((replyTokens / replyMs * 1000).rounded())) tokens/s writing replies"
     }
 
+    /// The job's summary. Windows' column is its v0.12.1 bench run (speeds summed over its 25 requests as `speeds`
+    /// does) and ai-brain.md's load time.
     var markdown: String {
         let (median, slowest) = BrainBench.medianAndSlowest(outcomes)
         var text = """
@@ -269,7 +271,7 @@ struct BrainBenchReport {
             | Slowest request | \(Self.seconds(slowest)) | 7.0 s (the first, with an empty prompt cache) |
             | First load (start to ready) | \(Self.seconds(loaded * 1000)) | 7–14 s |
             | llama-server's peak memory | \(memory) | not measured |
-            | Speed | \(speeds) | about 250 tokens/s reading, 16–19 tokens/s writing |
+            | Speed | \(speeds) | 154 tokens/s reading prompts, 20 tokens/s writing replies |
 
             | # | Request | This Mac | Time | Windows | Windows' time | Plan |
             |---|---|---|---|---|---|---|
