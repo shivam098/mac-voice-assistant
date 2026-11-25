@@ -223,6 +223,7 @@ final class BrainFakeDownloads: URLProtocol {
         let lock = NSLock()
         var files: [String: (bytes: Data, stall: Bool)] = [:]
         var log: [String] = []
+        var agents: [String] = []
     }
 
     private static let registry = Registry()
@@ -246,6 +247,13 @@ final class BrainFakeDownloads: URLProtocol {
         }
     }
 
+    /// The User-Agent header of each request for `name` so far ("-" for none).
+    static func userAgents(_ name: String) -> [String] {
+        registry.lock.withLock {
+            registry.agents.filter { $0.hasPrefix(name + " ") }.map { String($0.dropFirst(name.count + 1)) }
+        }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "brain.test" }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -254,9 +262,11 @@ final class BrainFakeDownloads: URLProtocol {
         guard let url = request.url, let client else { return }
         let name = String(url.path.drop { $0 == "/" })
         let range = request.value(forHTTPHeaderField: "Range")
+        let agent = request.value(forHTTPHeaderField: "User-Agent")
         let registry = Self.registry
         let file: (bytes: Data, stall: Bool)? = registry.lock.withLock {
             registry.log.append("\(name) \(range ?? "-")")
+            registry.agents.append("\(name) \(agent ?? "-")")
             return registry.files[name]
         }
 

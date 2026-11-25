@@ -72,6 +72,7 @@ final class BrainDownloadTests: XCTestCase {
         XCTAssertEqual(1, launcher.commands.count)
         XCTAssertFalse(brain.canDownload)
         XCTAssertEqual(["-"], BrainFakeDownloads.requests(name))
+        XCTAssertEqual(["VoiceAssistant"], BrainFakeDownloads.userAgents(name), "not ThumbFree's name")
         XCTAssertTrue(logs.items.contains("brain: downloading 2 MB"), "\(logs.items)")
         XCTAssertTrue(logs.items.contains("brain: downloaded and verified"), "\(logs.items)")
         let settled = await BrainWait.eventually { seen.items.last == .ready }

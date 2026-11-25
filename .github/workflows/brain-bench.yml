@@ -1,0 +1,94 @@
+name: Brain bench
+
+# The AI brain measured as Windows measures it (windows-voice-assistant tools/BrainSpike): its 25 requests through the
+# app's prompt and plan reader and LlamaBrain's llama-server, with the real Qwen3 4B model, on GitHub's Apple silicon
+# runner (llama.cpp's Metal build) and its Intel runner (the x64 build, the processor only). The Apple silicon runner's
+# virtual graphics chip lacks simdgroup reduction, so llama.cpp keeps the weights on its processor: the scores count,
+# but its times and memory aren't a real Mac's. Each job prints every plan, writes a summary to the job's page and
+# keeps it, with llama-server's log, as an artifact. Started by hand: the model is 2.4 GB, kept between runs.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: brain-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple silicon (macos-15)
+            runner: macos-15
+            slug: apple-silicon
+          - name: Intel (macos-15-intel)
+            runner: macos-15-intel
+            slug: intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: This Mac
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          xcodebuild -version
+          swift --version
+
+      # ci.yml's build, as a head start (Apple silicon only: its builds are for arm64).
+      - if: matrix.slug == 'apple-silicon'
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-bench
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: The model (kept between runs)
+        id: model
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/brain-bench/Qwen3-4B-Instruct-2507-Q4_0.gguf
+          key: brain-bench-qwen3-4b-instruct-2507-q4_0-e0ba675d
+
+      - name: Resolve (thumbfree-mac at the tip of main)
+        run: swift package update
+
+      - name: Bench
+        env:
+          BRAIN_BENCH_LABEL: ${{ matrix.name }}
+          BRAIN_BENCH_SUMMARY: ${{ runner.temp }}/brain-bench-${{ matrix.slug }}.md
+          BRAIN_BENCH_SERVER_LOG: ${{ runner.temp }}/brain-bench-${{ matrix.slug }}-llama-server.log
+          # llama-server's log then names the graphics chip and the layers it holds.
+          LLAMA_ARG_LOG_VERBOSITY: '4'
+        run: BRAIN_BENCH_FOLDER="$HOME/brain-bench" swift test --filter BrainBenchTests
+
+      # Kept even when the bench fails, once the model has been downloaded and checked.
+      - name: Keep the model
+        if: always() && steps.model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/brain-bench/Qwen3-4B-Instruct-2507-Q4_0.gguf
+          key: brain-bench-qwen3-4b-instruct-2507-q4_0-e0ba675d
+
+      - name: Summary
+        if: always()
+        run: |
+          summary="$RUNNER_TEMP/brain-bench-${{ matrix.slug }}.md"
+          if [ -f "$summary" ]; then
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No summary: see the Bench step's log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brain-bench-${{ matrix.slug }}
+          path: ${{ runner.temp }}/brain-bench-${{ matrix.slug }}*
+          if-no-files-found: warn

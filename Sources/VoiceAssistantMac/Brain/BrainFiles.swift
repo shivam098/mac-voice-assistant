@@ -21,6 +21,13 @@ public struct BrainFiles: Sendable {
         "llama-\(llamaBuild)-bin-macos-arm64.tar.gz", "\(releases)/llama-\(llamaBuild)-bin-macos-arm64.tar.gz",
         "a7e77443b598e497e43bfc9dcb993a355a217df9a2eda99c3d421356ab70c1a9", 17_212_020)
 
+    /// llama.cpp's build for Intel Macs (macOS 13.3 or later), laid out the same way: the processor only, with no Metal
+    /// library, and unsigned, which Intel Macs allow. The brain bench measures it; Intel Macs aren't offered the brain
+    /// until it has been measured (`unavailableReason`).
+    static let pinnedIntelServer = ModelFile(
+        "llama-\(llamaBuild)-bin-macos-x64.tar.gz", "\(releases)/llama-\(llamaBuild)-bin-macos-x64.tar.gz",
+        "d030a790cb868c15066b1f463a667f3fcb3c807a7c0427d64a49b1b6980ce723", 12_971_992)
+
     /// Windows' model. Q4_0 is the format llama.cpp's Adreno code is tuned for (ai-brain.md, spike 2); on Metal, Q4_K_M
     /// is measured against it before the first release (docs/design.md). Pinned to the commit of unsloth's repository
     /// that has this file, so a new upload there can't make a finished 2.4 GB download fail its check (Windows still
@@ -38,7 +45,12 @@ public struct BrainFiles: Sendable {
         var server: ModelFile
         var model: ModelFile
 
-        static let pinned = Downloads(server: BrainFiles.pinnedServer, model: BrainFiles.pinnedModel)
+        /// This Mac's llama.cpp build (by its processor, even when this app runs under Rosetta) and the model.
+        static var pinned: Downloads {
+            Downloads(
+                server: BrainFiles.isAppleSilicon ? BrainFiles.pinnedServer : BrainFiles.pinnedIntelServer,
+                model: BrainFiles.pinnedModel)
+        }
     }
 
     /// Where downloads go: ~/Library/Application Support/VoiceAssistant/brain, or settings.json's `brainFolder`.
@@ -129,7 +141,9 @@ public struct BrainFiles: Sendable {
         }
 
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let store = ModelStore(primaryFolder: folder, session: session)
+        // Requests say they come from Jarvis, not ThumbFree (the store's default). The store's
+        // removeLeftovers(keeping:) is never used on this folder: it would delete the unpacked llama.cpp.
+        let store = ModelStore(primaryFolder: folder, userAgent: "VoiceAssistant", session: session)
         let total = missingBytes
         // Only ever the default paths, so a chosen file or its folder is never written over or deleted.
         var done: Int64 = 0
