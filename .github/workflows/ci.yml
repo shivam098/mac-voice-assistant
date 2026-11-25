@@ -46,3 +46,14 @@ jobs:
 
       - name: Tests
         run: swift test
+
+      # The AI brain's integration test (tests/VoiceAssistantMacTests/BrainIntegrationTests.swift): the pinned llama.cpp
+      # build and a 1 MB model, kept between runs, on this runner's graphics chip.
+      - uses: actions/cache@v4
+        with:
+          path: ~/brain-integration
+          key: brain-integration-llama-b12483-stories260K-1
+
+      - name: AI brain integration test (llama-server, Metal, the supervisor)
+        timeout-minutes: 10
+        run: BRAIN_INTEGRATION_FOLDER="$HOME/brain-integration" swift test --filter BrainIntegrationTests
