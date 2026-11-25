@@ -1126,8 +1126,9 @@ public final class InteractionController {
         return count
     }
 
-    /// Refuses password fields and windows that can't take this app's input (on Windows, administrator windows), in the
-    /// platform's words, and, unless allowed, fields that can't be checked.
+    /// Refuses password fields and windows that can't take this app's input (on Windows, administrator windows), and,
+    /// unless allowed, fields that can't be checked, whose text is kept for the app's menu. The messages use the
+    /// platform's words.
     func checkField(_ heard: String, _ pendingText: String?, allowUnknown: Bool, known: AssistantFieldCheck? = nil)
         -> Bool {
         let check = known ?? desktop.checkFocusedField()
@@ -1138,7 +1139,8 @@ public final class InteractionController {
         case .elevated:
             refused = desktop.brainPlatform.elevatedRefusal
         case .unknown where !allowUnknown:
-            refused = "I couldn't check the focused field, so nothing was typed. The text is in the tray menu."
+            let place = desktop.brainPlatform.keptTextPlace
+            refused = "I couldn't check the focused field, so nothing was typed. The text is in \(place)."
         default:
             refused = nil
         }

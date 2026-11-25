@@ -363,4 +363,25 @@ final class WakeWordAndActionTests: XCTestCase {
             XCTAssertEqual(message, statuses.last?.message)
         }
     }
+
+    /// Dictation into a field that can't be checked isn't typed but kept, and the refusal says where it's waiting in
+    /// the platform's words: Windows' tray menu, as in the C#, and the Mac's menu bar.
+    func testTextThatWasntTypedIsSaidToWaitInThePlatformsMenu() async throws {
+        let refused = "I couldn't check the focused field, so nothing was typed."
+        let cases: [(BrainPlatform, ShortcutKeys, String)] = [
+            (.windows, .windows, refused + " The text is in the tray menu."),
+            (.mac, .mac, refused + " The text is in the menu bar."),
+        ]
+        for (platform, keys, message) in cases {
+            let (desktop, controller, statuses) = makeController(CommandParser(keys: keys))
+            desktop.brainPlatform = platform
+            try await controller.handleTranscript("Hey Jarvis, open Notepad and start typing.", 0.9)
+            desktop.field = .unknown
+            try await controller.handleTranscript("Hello there.", 0.9)
+            XCTAssertFalse(desktop.actions.contains { $0.hasPrefix("type:") }, message)
+            XCTAssertEqual("Hello there.", controller.untypedText, message)
+            XCTAssertEqual(.warning, statuses.last?.kind, message)
+            XCTAssertEqual(message, statuses.last?.message)
+        }
+    }
 }
