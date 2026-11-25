@@ -34,12 +34,15 @@ final class AccessibilityProbeTests: XCTestCase {
     }
 
     /// A window of this process with a button and a text box: read through Accessibility from another thread while
-    /// the main thread runs (Accessibility asks the main thread), its button pressed (AXPress) and its box given a
-    /// value, then a key posted to it.
+    /// the main thread handles events (Accessibility asks the main thread), its button pressed (AXPress) and its box
+    /// given a value, then a key posted to it. The first run, without `finishLaunching` and with only the run loop
+    /// running, found Accessibility not implemented for this process and its window not key; this one launches the app
+    /// and handles its events.
     @MainActor
     private func probeOwnWindow(mayPost: Bool) {
         let app = NSApplication.shared
-        Probe.report("activation policy set: \(app.setActivationPolicy(.regular))")
+        Probe.report("activation policy set: \(app.setActivationPolicy(.accessory))")
+        app.finishLaunching()
         let window = NSWindow(
             contentRect: NSRect(x: 240, y: 240, width: 420, height: 160), styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false)
@@ -55,24 +58,24 @@ final class AccessibilityProbeTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         app.activate(ignoringOtherApps: true)
         _ = window.makeFirstResponder(field)
-        Probe.spin(1)
+        Probe.handleEvents(1)
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid()
         Probe.report("own app active: \(app.isActive), its window key: \(window.isKeyWindow), in front: \(front)")
 
         let own = Probe.Box()
         let pid = getpid()
-        Probe.runOffMain(own) { box in Probe.readOwnApp(pid, box) }
+        Probe.runOffMain(own, handlingEvents: true) { box in Probe.readOwnApp(pid, box) }
         own.lines.forEach(Probe.report)
-        Probe.spin(0.5)
+        Probe.handleEvents(0.5)
         Probe.report("button's action ran after AXPress: \(clicks.count) time(s)")
         Probe.report("box shows the value Accessibility set: \(field.stringValue == Probe.setValue)")
 
         if mayPost {
             _ = window.makeFirstResponder(field)
             field.stringValue = ""
-            Probe.spin(0.3)
+            Probe.handleEvents(0.3)
             Probe.postKey(CGKeyCode(kVK_ANSI_X))
-            Probe.spin(1)
+            Probe.handleEvents(1)
             let typed = field.stringValue
             let outcome = typed == "x" ? "arrived in the box" : typed.isEmpty ? "nothing arrived" : "other text"
             Probe.report("posted key x: \(outcome)")
@@ -80,6 +83,8 @@ final class AccessibilityProbeTests: XCTestCase {
 
         window.orderOut(nil)
         window.close()
+        app.deactivate()
+        Probe.handleEvents(0.3)
     }
 }
 
@@ -118,16 +123,27 @@ private enum Probe {
         print("AX probe: \(line)")
     }
 
-    /// Runs the main run loop for `seconds`.
-    static func spin(_ seconds: TimeInterval) {
+    /// Handles this app's events for `seconds`, as NSApplication.run does.
+    @MainActor
+    static func handleEvents(_ seconds: TimeInterval) {
         let end = Date(timeIntervalSinceNow: seconds)
         while Date() < end {
-            RunLoop.current.run(mode: .default, before: min(end, Date(timeIntervalSinceNow: 0.05)))
+            handleEvent(until: min(end, Date(timeIntervalSinceNow: 0.05)))
         }
     }
 
-    /// Runs `work` on another thread while the main run loop runs, 30 s at most.
-    static func runOffMain(_ box: Box, _ work: @escaping @Sendable (Box) -> Void) {
+    @MainActor
+    private static func handleEvent(until date: Date) {
+        let app = NSApplication.shared
+        if let event = app.nextEvent(matching: .any, until: date, inMode: .default, dequeue: true) {
+            app.sendEvent(event)
+        }
+    }
+
+    /// Runs `work` on another thread while the main thread runs its run loop or, `handlingEvents`, handles this app's
+    /// events; 30 s at most.
+    @MainActor
+    static func runOffMain(_ box: Box, handlingEvents: Bool = false, _ work: @escaping @Sendable (Box) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             work(box)
             box.finish()
@@ -135,7 +151,11 @@ private enum Probe {
 
         let end = Date(timeIntervalSinceNow: 30)
         while !box.isFinished, Date() < end {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            if handlingEvents {
+                handleEvent(until: Date(timeIntervalSinceNow: 0.05))
+            } else {
+                RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            }
         }
 
         if !box.isFinished {
