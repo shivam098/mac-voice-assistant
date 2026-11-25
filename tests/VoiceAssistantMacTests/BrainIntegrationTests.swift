@@ -46,6 +46,8 @@ final class BrainIntegrationTests: XCTestCase {
 
     private static func say(_ line: String) {
         print("brain integration: \(line)")
+        // In order with XCTest's lines, and kept when a stand-in app is killed.
+        fflush(stdout)
     }
 
     private static func milliseconds(since start: Date) -> Int {
@@ -100,16 +102,28 @@ final class BrainIntegrationTests: XCTestCase {
         XCTAssertTrue(BrainProcesses.waitUntilGone(server.serverID, 5), "llama-server still runs after the unload")
         Self.say("unloaded after \(Self.milliseconds(since: started)) ms unused; pid \(server.serverID) is gone")
 
+        // The next request loads it again.
+        started = Date()
+        let again = try await brain.complete(LlamaServerClient.warmUpMessages)
+        let reloaded = try XCTUnwrap(brain.serverProcess)
+        XCTAssertNotEqual(server.serverID, reloaded.serverID)
+        XCTAssertTrue(again.hasPrefix(#"{"steps":["#), again)
+        Self.say("loaded again (pid \(reloaded.serverID)) and answered in \(Self.milliseconds(since: started)) ms")
+
         // 3. The app is killed: the server goes with it.
         let report = (NSTemporaryDirectory() as NSString).appendingPathComponent("stand-in-\(UUID().uuidString).txt")
         let standInLog = report + ".log"
         let app = try BrainStandIn.start(
             "VoiceAssistantMacTests.BrainIntegrationTests/testStandInAppWithLlamaServer", report: report,
             log: standInLog)
+        let standInOutput = { (try? String(contentsOfFile: standInLog, encoding: .utf8)) ?? "" }
         guard let ids = BrainStandIn.read(report, 180, from: app) else {
             BrainStandIn.kill(app)
-            let output = (try? String(contentsOfFile: standInLog, encoding: .utf8)) ?? ""
-            return XCTFail("The stand-in app started no llama-server:\n\(output)")
+            return XCTFail("The stand-in app started no llama-server:\n\(standInOutput())")
+        }
+
+        for line in standInOutput().split(separator: "\n") where line.hasPrefix("brain integration: brain: ") {
+            Self.say("stand-in app: \(line.dropFirst("brain integration: ".count))")
         }
 
         XCTAssertTrue(BrainProcesses.isAlive(ids.server))
@@ -178,15 +192,16 @@ final class BrainIntegrationTests: XCTestCase {
         return (process.terminationStatus, String(decoding: text, as: UTF8.self).trimmingCharacters(in: .newlines))
     }
 
-    /// What llama-server said about the graphics chip and the model (never a request: it doesn't log them).
+    /// What llama-server said about the graphics chip, loading and listening (never a request: the patterns don't match
+    /// one). CI sets LLAMA_ARG_LOG_VERBOSITY for the details of the Metal device.
     private static func printServerLog(_ path: String) {
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
-        let pattern = #"metal|gpu|offload|error|fail|model loaded|listening|build"#
+        let pattern = #"gpu name|gpu family|simdgroup|unified memory|offload|loaded in|model loaded|listening|error|fail"#
         let lines = text.split(separator: "\n").filter {
             $0.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
         }
 
-        for line in lines.prefix(40) {
+        for line in lines.prefix(60) {
             say("llama-server: \(line)")
         }
 

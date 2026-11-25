@@ -56,4 +56,7 @@ jobs:
 
       - name: AI brain integration test (llama-server, Metal, the supervisor)
         timeout-minutes: 10
+        env:
+          # The server's log, printed by the test, then says which graphics chip it uses.
+          LLAMA_ARG_LOG_VERBOSITY: '4'
         run: BRAIN_INTEGRATION_FOLDER="$HOME/brain-integration" swift test --filter BrainIntegrationTests
