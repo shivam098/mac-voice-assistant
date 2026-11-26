@@ -152,6 +152,29 @@ final class TabsTests: XCTestCase {
         XCTAssertEqual(.fail("That tab changed. Try again."), unknown)
     }
 
+    /// A browser that doesn't answer the press may switch all the same: the title says whether it did, and nothing is
+    /// clicked instead.
+    func testATabWhoseBrowserDidntAnswer() async throws {
+        let rig = Rig()
+        let inbox = tab("Inbox (3) - Gmail", x: 10)
+        let window = chrome(rig, number: 90, title: "News - Example", tabs: [
+            tab("News - Example", x: 220, selected: true), inbox,
+        ])
+        rig.workspace.windowOrder = [90]
+        let tabs = try await rig.desktop.listTabs()
+        inbox.outcome = .noAnswer
+        window[kAXTitleAttribute] = "Inbox (3) - Gmail"
+
+        var result = try await rig.desktop.selectTab(tabs[0])
+        XCTAssertEqual("Switched tab.", result.message)
+        XCTAssertTrue(result.success)
+
+        window[kAXTitleAttribute] = "News - Example"
+        result = try await rig.desktop.selectTab(tabs[0])
+        XCTAssertEqual(.fail("The tab didn't change. Click it once, or try “next tab”."), result)
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
+    }
+
     /// A tab in a window behind: the window comes to the front first.
     func testBringsTheTabsWindowForwardFirst() async throws {
         let rig = Rig()

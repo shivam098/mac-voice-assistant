@@ -42,8 +42,8 @@ final class ElementRegistry: @unchecked Sendable {
     }
 }
 
-/// A set of keys several threads share: the apps a desktop has woken, the browsers whose Automation permission is
-/// being asked for.
+/// A set of keys several threads share: the apps that didn't answer when asked to describe their pages, the browsers
+/// whose Automation permission is being asked for.
 final class KeySet: @unchecked Sendable {
     private let lock = NSLock()
     private var keys: Set<String> = []
@@ -55,5 +55,30 @@ final class KeySet: @unchecked Sendable {
 
     func remove(_ key: String) {
         lock.withLock { _ = keys.remove(key) }
+    }
+}
+
+/// When a desktop asked each app to describe its pages (`MacDesktop.wake`), on the desktop's clock, by process and
+/// bundle identifier; several threads share it.
+final class WakeTimes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var times: [String: TimeInterval] = [:]
+
+    /// Keeps `time` for `key`; true when it had none, false when the app was asked already.
+    func claim(_ key: String, at time: TimeInterval) -> Bool {
+        lock.withLock {
+            guard times[key] == nil else { return false }
+            times[key] = time
+            return true
+        }
+    }
+
+    func remove(_ key: String) {
+        lock.withLock { _ = times.removeValue(forKey: key) }
+    }
+
+    /// When the app was asked; nil when it wasn't.
+    func time(_ key: String) -> TimeInterval? {
+        lock.withLock { times[key] }
     }
 }

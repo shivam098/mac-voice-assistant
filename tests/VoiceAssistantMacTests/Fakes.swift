@@ -282,7 +282,11 @@ final class FakeAX: AXSystem {
     /// What the system-wide `elementAtPoint` finds; nil: nothing.
     var screenHit: FakeElement?
 
+    /// Called at each system-wide hit test, before it's answered.
+    var onScreenHit: (() -> Void)?
+
     func elementAtPoint(_ point: CGPoint) throws -> AnyObject? {
+        onScreenHit?()
         guard answers else { throw AXNoAnswer() }
         return screenHit
     }
@@ -588,6 +592,7 @@ final class Rig {
     let permissions = FakePermissions()
     let time = FakeClock()
     let log = LogLines()
+    let clickThrough = ClickThroughWindows()
     var insertMethod = "Paste"
 
     /// This app's process.
@@ -599,8 +604,8 @@ final class Rig {
         let typer = PasteTyper(pasteboard: pasteboard, keys: keys, sleep: { _ in }, now: { 0 })
         return MacDesktop(
             ax: ax, workspace: workspace, typer: typer, keys: keys, layout: layout, pointer: pointer,
-            scripts: scripts, permissions: Permissions(system: permissions), clock: time.clock, ownProcess: Self.own,
-            insertMethod: { method }, log: { lines.add($0) })
+            scripts: scripts, permissions: Permissions(system: permissions), clock: time.clock,
+            clickThrough: clickThrough, ownProcess: Self.own, insertMethod: { method }, log: { lines.add($0) })
     }()
 
     /// A running app with a window taking the keys (and `element` the focus).

@@ -73,19 +73,22 @@ The porting guide's capability map is the plan. These are the points it leaves o
 - **Browser tabs:** Chrome, Edge, Brave and the other Chromium browsers describe their tab strips to Accessibility, as
   Firefox does. Their pages, and Electron apps', may be described only once an assistive app asks
   (`AXEnhancedUserInterface`, `AXManualAccessibility`): the host's ThumbFree reader asks each app that comes to the
-  front, and a scan asks one the desktop hasn't asked yet, then waits up to 2.5 s for its page. Chromium turns its
-  page descriptions on 2 s after the last ask, and answers each ask with "no such attribute" while acting on it, so
-  the desktop asks each browser once. Safari's tabs come from AppleScript, which needs the Automation permission;
+  front, and a scan asks one the desktop hasn't asked yet; any scan within 2.5 s of the ask waits for the page. Chromium
+  turns its page descriptions on 2 s after the last ask, and answers each ask with "no such attribute" while acting on
+  it, so each browser is asked once. Safari's tabs come from AppleScript, which needs the Automation permission;
   it's asked for the first time Safari's tabs are wanted, and they're listed from then on.
 - **Clicking by name and the numbers:** a scan walks the window's Accessibility tree, as UI Automation's `FindAll`
   does on Windows: the buttons, links, tabs, menu items, checkboxes, radio buttons, pop-up buttons and rows that are
   enabled, named and show (inside the window and every scroll area around them), at most 1,500. A click uses
   Accessibility's own actions (`AXPress`, `AXSelected`, `AXDisclosing`), as Windows uses UI Automation's patterns.
   Rows get a real click when it lands on them: a web chat list opens a chat only then, and Finder's sidebar goes to the
-  folder only then. Anything whose action is refused gets one too, only where the click lands in the window, which
+  folder only then (an app's row only when the click lands on the row or its text, never on a checkbox or button in
+  it). Anything whose action the app refuses gets one too, only where the click lands in the window, which
   Accessibility's system-wide hit test says (the window server's list can't tell which windows let clicks through:
-  the Dock's spans the screen). The numbers and the click outline are a borderless panel above other windows that
-  clicks go through and that never takes the focus.
+  the Dock's spans the screen). Jarvis's own pill, reminder cards and balloons cover what's under them, as on Windows.
+  An action the app doesn't answer in time isn't followed by a click: the app may be doing it still (AppKit runs a
+  pop-up button's menu inside the press). The numbers and the click outline are a borderless panel above other
+  windows that clicks go through and that never takes the focus.
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.

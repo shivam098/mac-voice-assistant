@@ -220,7 +220,13 @@ final class NavigationIntegrationTests: XCTestCase {
         }
 
         guard permission == .granted else {
-            try await checkSafariWithoutAppleScript(safariApp, closing: wasRunning)
+            // On CI the "Prepare the apps" step grants it: without it the AppleScript path would quietly go untested.
+            let onCI = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
+            XCTAssertFalse(onCI, "Automation of Safari isn't granted on CI (\(permission))")
+            if !onCI {
+                try await checkSafariWithoutAppleScript(safariApp, closing: wasRunning)
+            }
+
             return
         }
 
@@ -539,6 +545,7 @@ final class NavigationIntegrationTests: XCTestCase {
         XCTAssertEqual(number, under, "the overlay is the front-most window at its badge")
         XCTAssertNotEqual(number, below)
         XCTAssertNotEqual(getpid(), owner, "Accessibility finds what's under the badge, as a click there reaches it")
+        XCTAssertTrue(ClickThroughWindows.shared.contains(number), "the desktop's clicks go past the overlay")
 
         overlay.flash(rect)
         XCTAssertNotNil(overlay.layout?.outline)
@@ -547,6 +554,7 @@ final class NavigationIntegrationTests: XCTestCase {
         XCTAssertNotNil(overlay.windowNumber)
         overlay.showBadges(nil)
         XCTAssertNil(overlay.windowNumber)
+        XCTAssertFalse(ClickThroughWindows.shared.contains(number))
     }
 
     // MARK: The lab pages

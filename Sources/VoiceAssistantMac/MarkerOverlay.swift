@@ -58,20 +58,50 @@ struct OverlayLayout: Equatable {
     }
 }
 
+/// The windows of this app that clicks go through, by window number: the number badges' panel (`MarkerOverlay`) while
+/// it shows. A real click aimed past one of them still lands where it was aimed, while any other window of this app's
+/// over the point (the pill, a reminder card, a balloon) covers it (`MacDesktop.landing`). Several threads share it.
+public final class ClickThroughWindows: @unchecked Sendable {
+    /// This app's.
+    public static let shared = ClickThroughWindows()
+
+    private let lock = NSLock()
+    private var numbers: Set<Int> = []
+
+    public init() {}
+
+    func insert(_ number: Int) {
+        lock.withLock { _ = numbers.insert(number) }
+    }
+
+    func remove(_ number: Int) {
+        lock.withLock { _ = numbers.remove(number) }
+    }
+
+    func contains(_ number: Int) -> Bool {
+        lock.withLock { numbers.contains(number) }
+    }
+}
+
 /// The numbers and the click outline over other apps (windows-voice-assistant `MarkerOverlay`): numbered badges for
 /// "show numbers" and ambiguous names (`InteractionController.onChoicesChanged`), and for under a second an outline on
 /// what was just clicked, selected or focused (`onHighlight`). A borderless, non-activating panel above other apps'
-/// windows, on every Space and over full-screen apps, that clicks go through and that never takes the focus. Its
-/// rectangles are the desktop's, in Accessibility's coordinates. Main thread only.
+/// windows, on every Space and over full-screen apps, that clicks go through and that never takes the focus; its window
+/// number is in `ClickThroughWindows` while it shows. Its rectangles are the desktop's, in Accessibility's coordinates.
+/// Main thread only.
 @MainActor
 public final class MarkerOverlay {
     private let panel: NSPanel
     private let canvas: OverlayCanvas
+    private let clickThrough: ClickThroughWindows
     private var badges: [ChoiceBadge]?
     private var flashed: ScreenRect?
     private var flashTimer: Timer?
 
-    public init() {
+    /// - Parameter clickThrough: Where the panel's window number goes while it shows, for the desktop's clicks to go
+    ///   past it.
+    public init(clickThrough: ClickThroughWindows = .shared) {
+        self.clickThrough = clickThrough
         // A panel needs the app object; the app has it already, a test process may not.
         _ = NSApplication.shared
         panel = NSPanel(
@@ -128,6 +158,7 @@ public final class MarkerOverlay {
             canvas.show(nil, newFlash: false)
             if panel.isVisible {
                 panel.orderOut(nil)
+                clickThrough.remove(panel.windowNumber)
             }
 
             return
@@ -141,6 +172,9 @@ public final class MarkerOverlay {
         canvas.show(layout, newFlash: newFlash)
         if !panel.isVisible {
             panel.orderFrontRegardless()
+            if panel.windowNumber > 0 {
+                clickThrough.insert(panel.windowNumber)
+            }
         }
     }
 }

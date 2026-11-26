@@ -41,12 +41,14 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     /// The elements and tabs scans handed out (`MacDesktop+Navigation`, `MacDesktop+Tabs`).
     let registry = ElementRegistry()
 
-    /// The apps whose pages this desktop has asked to be described (`MacDesktop.wake`), by process and bundle
-    /// identifier.
-    let woken = KeySet()
+    /// When this desktop asked each app to describe its pages (`MacDesktop.wake`), by process and bundle identifier.
+    let woken = WakeTimes()
 
     /// The apps that didn't answer when asked to describe their pages, so the log says it once.
     let unansweredWakes = KeySet()
+
+    /// This app's windows that clicks go through (the number badges' panel); its other windows cover a click point.
+    let clickThrough: ClickThroughWindows
 
     /// The browsers whose Automation permission is being asked for (`MacDesktop+Tabs`).
     let automationAsks = KeySet()
@@ -75,12 +77,13 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     ///   - keys: Where chords go.
     ///   - pointer: Where a click lands, and real clicks.
     ///   - scripts: AppleScript, for Safari's tabs.
+    ///   - clickThrough: This app's windows that clicks go through (`MarkerOverlay`'s).
     ///   - ownProcess: This app's process, which is never a window to act on.
     public init(
         ax: AXSystem, workspace: WorkspaceSystem, typer: PasteTyper, keys: PasteTyper.Keys, layout: KeyLayout,
         pointer: PointerSystem = SystemPointer(), scripts: ScriptSystem = SystemScripts(),
         permissions: Permissions = Permissions(), clock: DesktopClock = .system,
-        ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier,
+        clickThrough: ClickThroughWindows = .shared, ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier,
         insertMethod: @escaping @Sendable () -> String = { "Paste" }, log: (@Sendable (String) -> Void)? = nil
     ) {
         self.ax = ax
@@ -91,6 +94,7 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
         self.scripts = scripts
         self.permissions = permissions
         self.clock = clock
+        self.clickThrough = clickThrough
         self.ownProcess = ownProcess
         self.insertMethod = insertMethod
         logger = log

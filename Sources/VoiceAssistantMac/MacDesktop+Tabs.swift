@@ -111,8 +111,7 @@ extension MacDesktop {
         scan(root, token, pages: false, deadline: deadline) { element, node, place in
             guard node.role == kAXRadioButtonRole, Self.isTab(node, place), let rect = place.rect, !rect.isEmpty
             else { return true }
-            let name = clickableName(element, node, inPage: false)
-            guard !name.isEmpty else { return true }
+            guard let name = clickableName(element, node, inPage: false), !name.isEmpty else { return true }
             items.append(TabItem(element: element, name: name, rect: rect, selected: isShownTab(element)))
             return true
         }
@@ -356,10 +355,11 @@ extension MacDesktop {
             acted = error
         case .timedOut:
             log("tab select timed out")
-            acted = "timed out"
+            acted = Self.timedOut
         }
 
-        if let acted {
+        // A browser that didn't answer may have switched all the same: the title says.
+        if let acted, acted != Self.unanswered {
             return .fail("I couldn't switch to that tab (\(acted)).")
         }
 

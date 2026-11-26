@@ -7,8 +7,9 @@ import VoiceAssistantCore
 /// clicking, and choosing a text box, through the Accessibility API. A scan walks the window's elements, one call each
 /// (`AXSystem.node`), and keeps those that show; the ids it hands out find the elements again for a while
 /// (`ElementRegistry`). Each runs off the caller's thread with the C#'s 4-second limit, and work still running when the
-/// time is up never acts. Chromium browsers and Electron apps describe their pages only once asked: a scan wakes one
-/// that this desktop hasn't woken yet (`wake`). Logs hold counts and timings, never names.
+/// time is up never acts: the time is checked right before each action and each real click. Chromium browsers and
+/// Electron apps describe their pages only once asked: a scan wakes one that this desktop hasn't woken yet (`wake`).
+/// Logs hold counts and timings, never names.
 extension MacDesktop {
     /// The most elements a scan hands out (C#'s `MaxElements`).
     static let maxElements = 1500
@@ -20,11 +21,15 @@ extension MacDesktop {
     /// time still gives what was read.
     static let scanTime: TimeInterval = 3.5
 
-    /// How long, from the start of a scan, it waits for the page of an app it has just woken.
+    /// How long after an app was asked to describe its pages (`wake`) a scan waits for its page.
     static let wakeWait: TimeInterval = 2.5
 
     static let changedOnScreen = "that changed on screen"
     static let coveredUp = "something else is on top of it"
+    static let timedOut = "timed out"
+
+    /// Why an action wasn't followed by a real click: the app didn't answer it, which doesn't mean it isn't doing it.
+    static let unanswered = "the app didn't answer"
 
     // MARK: Scans
 
@@ -72,11 +77,17 @@ extension MacDesktop {
         wakeForScan(window, root, start, token)
         var found = 0
         var result: [UiElement] = []
-        scan(root, token, deadline: start + Self.scanTime) { element, node, place in
+        let deadline = start + Self.scanTime
+        scan(root, token, deadline: deadline) { element, node, place in
             guard place.shows, let rect = place.rect, node.enabled != false,
                   let role = Self.clickableRole(node, place) else { return true }
             found += 1
-            let name = clickableName(element, node, inPage: place.inPage)
+            // A name cut short (the time ran out, or the app stopped answering) would be the wrong name: the scan
+            // hands out what it has.
+            guard let name = clickableName(element, node, inPage: place.inPage, deadline: deadline) else {
+                return false
+            }
+
             if !name.isEmpty {
                 let id = registry.register(element, inPage: place.inPage)
                 result.append(UiElement(id: id, name: name, role: role, rect: rect))
@@ -141,12 +152,12 @@ extension MacDesktop {
     }
 
     /// Walks the elements in `root` (a window) breadth first, reading at most `limit` of them until `deadline` (on the
-    /// desktop's clock; `scanTime` from now when not given), and calls `visit` with each and where it is until `visit`
-    /// says it has enough (false). Not into text, images and text boxes, which hold no controls, nor into a scroll
-    /// area, web area, table, outline, list, row or cell that doesn't show; with `pages` false, not into web pages. A
-    /// table or outline is walked by the rows that show (AXVisibleRows) when it says. What's in a sheet, a drawer, a
-    /// popover or a menu shows where they are, inside the window or not. It stops when an app doesn't answer or `token`
-    /// is cancelled.
+    /// desktop's clock; `scanTime` from now when not given), checked before each one, and calls `visit` with each and
+    /// where it is until `visit` says it has enough (false). Not into text, images and text boxes, which hold no
+    /// controls, nor into a scroll area, web area, table, outline, list, row or cell that doesn't show; with `pages`
+    /// false, not into web pages. A table or outline is walked by the rows that show (AXVisibleRows) when it says.
+    /// What's in a sheet, a drawer, a popover or a menu shows where they are, inside the window or not. It stops when
+    /// an app doesn't answer or `token` is cancelled.
     func scan(
         _ root: AnyObject, _ token: WorkToken, pages: Bool = true, limit: Int = MacDesktop.maxScanned,
         deadline: TimeInterval? = nil, _ visit: (AnyObject, AXNode, Place) -> Bool
@@ -162,7 +173,7 @@ extension MacDesktop {
         var queue = [Pending(element: root, clip: nil, inPage: false, parentRole: nil)]
         var next = 0
         while next < queue.count, next < limit, !token.isCancelled {
-            if next % 64 == 63, clock.now() > deadline {
+            if clock.now() > deadline {
                 log("scan stopped after \(next) elements")
                 break
             }
@@ -257,8 +268,10 @@ extension MacDesktop {
     /// What a clickable is called (C#'s Name, trimmed): its title, else its description, else its label's text or its
     /// placeholder (`labelName`), else the text inside it, as Chromium names a row or a link by its contents: all of
     /// it in a web page (a WhatsApp chat row is "1 unread message Bibhash Morang 11:27 am…"), the first cell's for a
-    /// row of a Mac app's table or outline (Finder's file name, as Explorer names a row). Empty when it has none.
-    func clickableName(_ element: AnyObject, _ node: AXNode, inPage: Bool) -> String {
+    /// row of a Mac app's table or outline (Finder's file name, as Explorer names a row). Empty when it has none; nil
+    /// when the text inside it couldn't be read in full: an element there got no answer, or `deadline` (on the
+    /// desktop's clock) passed.
+    func clickableName(_ element: AnyObject, _ node: AXNode, inPage: Bool, deadline: TimeInterval? = nil) -> String? {
         for text in [node.title, node.label] {
             if let text, !DotNet.isNullOrWhiteSpace(text) {
                 return DotNet.trim(text)
@@ -269,17 +282,29 @@ extension MacDesktop {
             return DotNet.trim(labelled)
         }
 
-        return contentsText(node.children, firstOnly: node.role == kAXRowRole && !inPage)
+        return contentsText(node.children, firstOnly: node.role == kAXRowRole && !inPage, deadline: deadline)
     }
 
     /// The text inside an element (its name from contents): the values of its texts and text fields, in order, joined
     /// by spaces; read from at most 40 elements 4 levels down, at most 400 UTF-16 units. With `firstOnly`, only the
-    /// first child that has some.
-    func contentsText(_ children: [AnyObject], firstOnly: Bool) -> String {
+    /// first child that has some. Nil when an element there got no answer or `deadline` passed: what was read would be
+    /// only part of it.
+    func contentsText(_ children: [AnyObject], firstOnly: Bool, deadline: TimeInterval? = nil) -> String? {
         var parts: [String] = []
         var read = 0
+        var cutShort = false
         func collect(_ element: AnyObject, _ depth: Int) {
-            guard read < 40, let node = try? ax.node(element) else { return }
+            guard !cutShort, read < 40 else { return }
+            if let deadline, clock.now() > deadline {
+                cutShort = true
+                return
+            }
+
+            guard let node = try? ax.node(element) else {
+                cutShort = true
+                return
+            }
+
             read += 1
             switch node.role ?? "" {
             case kAXStaticTextRole, kAXTextFieldRole:
@@ -299,6 +324,10 @@ extension MacDesktop {
 
         for child in children {
             collect(child, 1)
+            if cutShort {
+                return nil
+            }
+
             if firstOnly && !parts.isEmpty {
                 break
             }
@@ -333,17 +362,35 @@ extension MacDesktop {
         return workspace.isElectron(app) ? "AXManualAccessibility" : nil
     }
 
+    /// An app that needs asking to describe its pages (`wakeAttribute`): its process, the key `woken` knows it by,
+    /// and what it's asked with.
+    struct Wakeable {
+        let pid: pid_t
+        let key: String
+        let attribute: String
+    }
+
+    /// The window's app when it needs asking to describe its pages; nil for one that doesn't, or this app.
+    func wakeable(_ window: WindowInfo) -> Wakeable? {
+        guard let pid = pid_t(exactly: window.processId), pid != ownProcess, let app = workspace.app(pid),
+              let attribute = wakeAttribute(app) else { return nil }
+        return Wakeable(pid: pid, key: "\(pid) \(app.processName)", attribute: attribute)
+    }
+
     /// Wakes the window's app when it needs it (`wakeAttribute`) and this desktop hasn't woken it yet, as
     /// ThumbFreeMac's reader wakes each app that comes to the front (the app's host runs one too); true when it woke
-    /// it now. Chromium acts on the flag but hands it on to AppKit, which answers that the app has no such attribute:
-    /// that counts as woken, and it isn't asked again, since each ask restarts the 2 s Chromium waits before it turns
-    /// descriptions on. An app that didn't answer (one still starting) is asked again next time; the log says so once.
+    /// it now. When it was asked is kept (`woken`). Chromium acts on the flag but hands it on to AppKit, which answers
+    /// that the app has no such attribute: that counts as woken, and it isn't asked again, since each ask restarts the
+    /// 2 s Chromium waits before it turns descriptions on. An app that didn't answer (one still starting) is asked
+    /// again next time; the log says so once.
     func wake(_ window: WindowInfo) -> Bool {
-        guard let pid = pid_t(exactly: window.processId), pid != ownProcess, let app = workspace.app(pid),
-              let attribute = wakeAttribute(app) else { return false }
-        let key = "\(pid) \(app.processName)"
-        guard woken.insert(key) else { return false }
-        let outcome = ax.set(attribute, true, of: ax.application(pid))
+        guard let app = wakeable(window) else { return false }
+        return wake(app)
+    }
+
+    func wake(_ app: Wakeable) -> Bool {
+        guard woken.claim(app.key, at: clock.now()) else { return false }
+        let outcome = ax.set(app.attribute, true, of: ax.application(app.pid))
         switch outcome {
         case .done:
             log("page descriptions asked for")
@@ -352,8 +399,8 @@ extension MacDesktop {
             log("page descriptions asked for (the app says it has no such setting)")
             return true
         case .gone, .noAnswer:
-            woken.remove(key)
-            if unansweredWakes.insert(key) {
+            woken.remove(app.key)
+            if unansweredWakes.insert(app.key) {
                 log("page descriptions not asked for: the app didn't answer (\(outcome))")
             }
 
@@ -361,24 +408,32 @@ extension MacDesktop {
         }
     }
 
-    /// For a scan that started at `start`: wakes the window's app if it needs it (`wake`), then waits until `wakeWait`
-    /// after `start` for its page to be described, which Chromium does about 2 s after it's asked.
+    /// For a scan that started at `start`: wakes the window's app if it needs it (`wake`), then, while it's less than
+    /// `wakeWait` since the app was asked (by this scan or an earlier one, such as a tab scan's), waits for its page to
+    /// be described, which Chromium does about 2 s after it's asked.
     func wakeForScan(_ window: WindowInfo, _ root: AnyObject, _ start: TimeInterval, _ token: WorkToken) {
-        guard wake(window) else { return }
+        guard let app = wakeable(window) else { return }
+        let askedNow = wake(app)
+        guard let asked = woken.time(app.key), start < asked + Self.wakeWait else { return }
+        var waited = false
         while !token.isCancelled {
             if hasPage(root, token) {
-                log("page described \(milliseconds(since: start)) ms after waking")
+                if askedNow || waited {
+                    log("page described \(milliseconds(since: asked)) ms after waking")
+                }
+
                 return
             }
 
-            if clock.now() + 0.25 > start + Self.wakeWait {
+            if clock.now() + 0.25 > asked + Self.wakeWait {
                 break
             }
 
             clock.sleep(0.25)
+            waited = true
         }
 
-        log("page not described \(milliseconds(since: start)) ms after waking")
+        log("page not described \(milliseconds(since: asked)) ms after waking")
     }
 
     /// Whether the window holds a page with something in it (a web area with children), among its first 500 elements.
@@ -420,17 +475,23 @@ extension MacDesktop {
             error = result
         case .timedOut:
             log("click timed out")
-            error = "timed out"
+            error = Self.timedOut
+        }
+
+        if error == Self.unanswered {
+            return .fail("\(label(front)) didn't answer, so I didn't click again.")
         }
 
         return error.map { DesktopResult.fail("I couldn't click that (\($0)).") } ?? .ok("Clicked.")
     }
 
     /// C#'s `Activate`. A web grid's row or cell is clicked for real (`clickGridItem`), and so is an app's table or
-    /// outline row when the click lands on it; anything else the first way it takes, in the C#'s order: selected, for a
-    /// tab (AXSelected, as SelectionItem's Select); pressed (AXPress, as Invoke and Toggle); selected; opened or closed
-    /// (AXDisclosing, as ExpandCollapse). When that's refused, or it takes none, a real click on its centre, only if
-    /// that lands in `window`. Nil when it was done, else why not.
+    /// outline row when the click lands on the row itself; anything else the first way it takes, in the C#'s order:
+    /// selected, for a tab (AXSelected, as SelectionItem's Select); pressed (AXPress, as Invoke and Toggle); selected;
+    /// opened or closed (AXDisclosing, as ExpandCollapse). When the app refuses that, or it takes none, a real click on
+    /// its centre, only if that lands in `window`. When the app doesn't answer the action, no click: it may be doing
+    /// it all the same (`unanswered`). The time is checked right before each action. Nil when it was done, else why
+    /// not.
     func activateElement(
         _ element: AnyObject, _ rect: ScreenRect, preferSelect: Bool, inPage: Bool, _ window: WindowInfo,
         _ token: WorkToken
@@ -446,14 +507,15 @@ extension MacDesktop {
         let isRow: Bool = role == kAXRowRole || role == kAXCellRole
         if isRow && inPage && !preferSelect {
             // Web grid rows (chat lists) only highlight when selected through Accessibility; they open on a real click.
-            return token.isCancelled ? "timed out" : clickGridItem(element, rect, window, token)
+            return token.isCancelled ? Self.timedOut : clickGridItem(element, rect, window, token, native: false)
         }
 
         if isRow && !preferSelect && !token.isCancelled {
             // An app's rows take AXSelected, but some act only on a real click (Finder's sidebar goes to the folder):
-            // clicked for real when the click lands on the row, else selected below.
-            if clickGridItem(element, rect, window, token) == nil {
-                return nil
+            // clicked for real when the click lands on the row itself, else selected below.
+            let clicked = clickGridItem(element, rect, window, token, native: true)
+            if clicked == nil || clicked == Self.timedOut {
+                return clicked
             }
         }
 
@@ -477,6 +539,10 @@ extension MacDesktop {
         }
 
         if let way {
+            if token.isCancelled {
+                return Self.timedOut
+            }
+
             let outcome: AXOutcome
             switch way {
             case .select:
@@ -492,25 +558,38 @@ extension MacDesktop {
                 return nil
             case .gone:
                 return Self.changedOnScreen
-            case .unsupported, .noAnswer:
-                log("accessibility action failed, clicking instead")
+            case .noAnswer:
+                // kAXErrorCannotComplete doesn't mean it wasn't done: the app may be doing it still (AppKit runs a
+                // pop-up button's menu inside the press), and a real click now could do it twice or close the menu.
+                log("accessibility action got no answer, not clicking again")
+                return Self.unanswered
+            case .unsupported:
+                log("accessibility action refused, clicking instead")
             }
         }
 
         if token.isCancelled {
-            return "timed out"
+            return Self.timedOut
         }
 
-        return clickAt(CGPoint(x: rect.centerX, y: rect.centerY), window)
+        return clickAt(CGPoint(x: rect.centerX, y: rect.centerY), window, token)
     }
 
     /// C#'s `ClickGridItem`: scrolls a web grid's row or cell into view (AXScrollToVisible), then clicks its centre for
     /// real, only if the element there is the target, or inside it or a row or cell around it up to 4 levels (WhatsApp
     /// draws the time over the name cell's centre); not when it's something else (a half-hidden row's centre can sit
-    /// under the search box above the list). The element there is asked of the window's app, where the C# asks the
-    /// whole screen: `clickAt` checks no other window covers the point. Nil when it clicked, else why not.
-    func clickGridItem(_ element: AnyObject, _ rect: ScreenRect, _ window: WindowInfo, _ token: WorkToken) -> String? {
+    /// under the search box above the list). For an app's own (`native`) row, only the row itself, its cells, or text
+    /// and images in them count, never a control in the row (a checkbox, a switch, Finder's eject button). The element
+    /// there is asked of the window's app, where the C# asks the whole screen: `clickAt` checks no other window covers
+    /// the point. Nil when it clicked, else why not.
+    func clickGridItem(
+        _ element: AnyObject, _ rect: ScreenRect, _ window: WindowInfo, _ token: WorkToken, native: Bool
+    ) -> String? {
         if ((try? ax.actions(of: element)) ?? []).contains(AXName.scrollToVisible) {
+            if token.isCancelled {
+                return Self.timedOut
+            }
+
             if ax.perform(AXName.scrollToVisible, on: element) == .done {
                 clock.sleep(0.15)
             } else {
@@ -540,8 +619,16 @@ extension MacDesktop {
         if let pid = pid_t(exactly: window.processId) {
             var node = try? ax.element(at: point, of: ax.application(pid))
             var depth = 0
-            while let current = node, depth < 25, !onTarget {
-                onTarget = accepted.contains { ax.isSame(current, as: $0) }
+            while let current = node, depth < 25 {
+                if accepted.contains(where: { ax.isSame(current, as: $0) }) {
+                    onTarget = true
+                    break
+                }
+
+                if native, !Self.rowParts.contains((try? ax.role(of: current)) ?? "") {
+                    break
+                }
+
                 node = try? ax.element(kAXParentAttribute, of: current)
                 depth += 1
             }
@@ -552,12 +639,16 @@ extension MacDesktop {
             return Self.coveredUp
         }
 
-        return token.isCancelled ? "timed out" : clickAt(point, window)
+        return token.isCancelled ? Self.timedOut : clickAt(point, window, token)
     }
 
+    /// What a click on an app's row may land on besides the row itself: its cells, and text and images in them.
+    static let rowParts: Set<String> = [kAXCellRole, kAXStaticTextRole, kAXImageRole]
+
     /// C#'s `ClickAt`: a real left click at a point of the screen, only if a click there lands in `window`, once held
-    /// modifier keys are let go; then the pointer goes back where it was. Nil when it clicked, else why not.
-    func clickAt(_ point: CGPoint, _ window: WindowInfo) -> String? {
+    /// modifier keys are let go, and only if the time isn't up then; then the pointer goes back where it was. Nil when
+    /// it clicked, else why not.
+    func clickAt(_ point: CGPoint, _ window: WindowInfo, _ token: WorkToken) -> String? {
         let point = CGPoint(x: point.x.rounded(), y: point.y.rounded())
         let landed = landing(window, at: point)
         guard landed == .target else {
@@ -571,6 +662,11 @@ extension MacDesktop {
         }
 
         typer.waitForModifiersReleased()
+        guard !token.isCancelled else {
+            log("click not sent: the time ran out")
+            return Self.timedOut
+        }
+
         return pointer.click(at: point) ? nil : Self.coveredUp
     }
 
@@ -580,34 +676,39 @@ extension MacDesktop {
         case nothing = "no window"
         case otherApp = "another app's window"
         case otherWindow = "another window of its app"
+        case ownApp = "a window of this app's"
     }
 
     /// Where a click at `point` lands (C#: whether `WindowFromPoint`'s root window is `window`): the target when it's
     /// `window` or a sheet open on it, or, for a window without a number, any of its app's. Accessibility's
     /// system-wide hit test finds the element a click there reaches, as the window server routes clicks: past windows
-    /// that let them through (the Dock's, which spans the screen; this app's badges). When it can't tell, the window
-    /// server's list says (`serverLanding`).
+    /// that let them through (the Dock's, which spans the screen; this app's number badges). When it can't tell, the
+    /// window server's list says (`serverLanding`). This app's other windows (the pill, a reminder card, a balloon)
+    /// cover the point, as the C#'s `WindowFromPoint` finds its pill and reminder popup.
     func landing(_ window: WindowInfo, at point: CGPoint) -> Landing {
         accessibilityLanding(window, at: point) ?? serverLanding(window, at: point)
     }
 
     /// Where Accessibility's system-wide hit test says a click at `point` lands; nil when it can't tell: no answer, an
-    /// element of this app's, or one whose window has no number.
+    /// element in a window that lets clicks through, or one whose window has no number.
     func accessibilityLanding(_ window: WindowInfo, at point: CGPoint) -> Landing? {
-        guard let element = try? ax.elementAtPoint(point), let pid = try? ax.processIdentifier(of: element),
-              pid != ownProcess else { return nil }
+        guard let element = try? ax.elementAtPoint(point), let pid = try? ax.processIdentifier(of: element) else {
+            return nil
+        }
+
+        if pid == ownProcess {
+            // Should Accessibility ever find the badges' panel, which clicks go through, the window server's list goes
+            // past it.
+            guard let number = windowNumber(around: element), clickThrough.contains(number) else { return .ownApp }
+            return nil
+        }
+
         guard Int(pid) == window.processId else { return .otherApp }
         if window.handle == 0 {
             return .target
         }
 
-        let role = try? ax.role(of: element)
-        var around: AnyObject? = element
-        if role != kAXWindowRole && role != kAXSheetRole {
-            around = try? ax.element(kAXWindowAttribute, of: element)
-        }
-
-        guard let hitWindow = around, let number = ax.windowNumber(of: hitWindow) else { return nil }
+        guard let number = windowNumber(around: element) else { return nil }
         if number == window.handle || isSheet(number, of: window) {
             return .target
         }
@@ -615,30 +716,45 @@ extension MacDesktop {
         return .otherWindow
     }
 
+    /// The number of the window or sheet an element is in; nil when it can't be told.
+    func windowNumber(around element: AnyObject) -> Int? {
+        let role = try? ax.role(of: element)
+        var around: AnyObject? = element
+        if role != kAXWindowRole && role != kAXSheetRole {
+            around = try? ax.element(kAXWindowAttribute, of: element)
+        }
+
+        return around.flatMap { ax.windowNumber(of: $0) }
+    }
+
     /// Where the window server's list says a click at `point` lands: in the front-most window there that shows, past
-    /// this app's own windows (the badges, which clicks go through) and the Dock's away from its icons
+    /// this app's windows that clicks go through (`clickThrough`: the badges) and the Dock's away from its icons
     /// (`isDockSeeThrough`).
     func serverLanding(_ window: WindowInfo, at point: CGPoint) -> Landing {
         var below = 0
         for _ in 0..<8 {
             guard let hit = pointer.windowNumber(at: point, below: below) else { return .nothing }
             let server = workspace.serverWindow(hit)
-            let passes: Bool = server.map { $0.owner == ownProcess || isDockSeeThrough($0, at: point) } ?? false
-            if passes {
+            let dock: Bool = server.map { isDockSeeThrough($0, at: point) } ?? false
+            if clickThrough.contains(hit) || dock {
                 below = hit
                 continue
             }
 
-            let ownApp: Bool = server.map { Int($0.owner) == window.processId } ?? false
+            if server?.owner == ownProcess {
+                return .ownApp
+            }
+
+            let sameApp: Bool = server.map { Int($0.owner) == window.processId } ?? false
             if window.handle == 0 {
-                return ownApp ? .target : .otherApp
+                return sameApp ? .target : .otherApp
             }
 
             if hit == window.handle || isSheet(hit, of: window) {
                 return .target
             }
 
-            return ownApp ? .otherWindow : .otherApp
+            return sameApp ? .otherWindow : .otherApp
         }
 
         return .nothing
@@ -709,7 +825,7 @@ extension MacDesktop {
         clock.sleep(0.15)
         var focused = focus()
         if !isInside(focused, element, rect) && !token.isCancelled {
-            _ = clickAt(CGPoint(x: rect.centerX, y: rect.centerY), window)
+            _ = clickAt(CGPoint(x: rect.centerX, y: rect.centerY), window, token)
             clock.sleep(0.2)
             focused = focus()
         }

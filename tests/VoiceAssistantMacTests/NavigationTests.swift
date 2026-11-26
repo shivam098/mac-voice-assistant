@@ -127,6 +127,39 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual("Button 1499", found.last?.name)
     }
 
+    /// The scan's 3.5 s are checked before each element it reads, and while it reads a row's text for its name: what
+    /// was found by then is handed out, never a name cut short, and it ends well inside the 4 s limit.
+    func testAScanStopsAtItsTimeWithWhatItFound() async throws {
+        let rig = Rig()
+        let buttons = (0..<20).map { make(kAXButtonRole, "Button \($0)", y: Double($0 * 20)) }
+        let window = try front(rig, buttons)
+        let time = rig.time
+        rig.ax.onNode = { _ in time.advance(0.25) }
+        let start = time.now
+        var found = try await rig.desktop.listClickable(window)
+        XCTAssertEqual((0..<14).map { "Button \($0)" }, found.map(\.name))
+        XCTAssertEqual(3.75, time.now - start, accuracy: 0.001)
+        XCTAssertTrue(rig.log.lines.contains("scan stopped after 15 elements"))
+
+        // A web row named by its text: reading it runs past the time, so it isn't handed out at all.
+        let other = Rig()
+        let first = make(kAXRowRole, x: 0, y: 120, width: 600, height: 30)
+        first.children = [text("Family", y: 120)]
+        let second = make(kAXRowRole, x: 0, y: 160, width: 600, height: 30)
+        second.children = (0..<20).map { text("part \($0)", y: 160) }
+        let grid = make(kAXTableRole, x: 0, y: 100, width: 600, height: 400)
+        grid.children = [first, second]
+        let page = make(AXName.webArea, x: 0, y: 80, width: 1000, height: 700)
+        page.children = [grid]
+        let pageWindow = try front(other, [page])
+        let clock = other.time
+        other.ax.onNode = { _ in clock.advance(0.25) }
+        let began = clock.now
+        found = try await other.desktop.listClickable(pageWindow)
+        XCTAssertEqual(["Family"], found.map(\.name))
+        XCTAssertLessThan(clock.now - began, 4)
+    }
+
     /// Text fields, editable text areas and combo boxes, at least 40 points wide, that can take the focus: not
     /// password boxes, read-only ones, disabled ones, or a text area that doesn't take text.
     func testListsTextBoxes() async throws {
@@ -292,6 +325,48 @@ final class NavigationTests: XCTestCase {
         XCTAssertFalse(safari.log.lines.contains { $0.hasPrefix("page") })
     }
 
+    /// The wait is for the app, not for the scan that asked it: a tab scan asks Chrome and goes on without its page,
+    /// and a clickable scan half a second later still waits for the page, up to 2.5 s after the ask; one after that
+    /// doesn't wait.
+    func testAScanSoonAfterAnotherAskedWaitsForThePage() async throws {
+        let rig = Rig()
+        let (window, page) = try chrome(rig)
+        let element = try XCTUnwrap(rig.desktop.windowElement(window) as? FakeElement)
+        let strip = FakeElement(pid: 9, role: kAXTabGroupRole, frame: CGRect(x: 0, y: 0, width: 1000, height: 40))
+        strip.children = [
+            FakeElement(
+                pid: 9, role: kAXRadioButtonRole, subrole: AXName.tabButton, title: "Nav Lab",
+                frame: CGRect(x: 10, y: 5, width: 200, height: 30)),
+        ]
+        element.children = [strip, page]
+        rig.workspace.windowOrder = [90]
+        let button = FakeElement(
+            pid: 9, role: kAXButtonRole, title: "New", frame: CGRect(x: 10, y: 100, width: 80, height: 30))
+        let time = rig.time
+        let asked = time.now
+        rig.ax.onNode = { node in
+            if node === page, page.children.isEmpty, time.now >= asked + 2 {
+                page.children = [button]
+            }
+        }
+
+        let tabs = try await rig.desktop.listTabs()
+        XCTAssertEqual(["Nav Lab"], tabs.map(\.title))
+        XCTAssertEqual(asked, time.now, accuracy: 0.001)
+
+        time.advance(0.5)
+        var found = try await rig.desktop.listClickable(window)
+        XCTAssertEqual(["Nav Lab", "New"], found.map(\.name))
+        XCTAssertEqual(2, time.now - asked, accuracy: 0.001)
+        XCTAssertTrue(rig.log.lines.contains("page described 2000 ms after waking"))
+
+        time.advance(1)
+        found = try await rig.desktop.listClickable(window)
+        XCTAssertEqual(["Nav Lab", "New"], found.map(\.name))
+        XCTAssertEqual(3, time.now - asked, accuracy: 0.001)
+        XCTAssertEqual(1, rig.log.lines.filter { $0.hasPrefix("page described") }.count)
+    }
+
     // MARK: Clicking
 
     func testPressesWhatItClicks() async throws {
@@ -364,8 +439,9 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(rig.pointer.clicks.isEmpty)
     }
 
-    /// With no way through Accessibility, or when it's refused, a real click on the centre once modifier keys are let
-    /// go, only where it lands in the window: past this app's own panels, or on a sheet of the window.
+    /// With no way through Accessibility, or when the app refuses it, a real click on the centre once modifier keys
+    /// are let go, only where it lands in the window: past this app's windows that clicks go through (the badges), or
+    /// on a sheet of the window; never under another window of this app's.
     func testClicksForRealOnlyWhereItLandsInTheWindow() async throws {
         let rig = Rig()
         let box = make(kAXCheckBoxRole, "Bold", x: 100, y: 200, width: 40, height: 20)
@@ -388,7 +464,7 @@ final class NavigationTests: XCTestCase {
         result = try await rig.desktop.click(found[1])
         XCTAssertEqual(.ok("Clicked."), result)
         XCTAssertEqual(CGPoint(x: 330, y: 210), rig.pointer.clicks.last)
-        XCTAssertEqual(["accessibility action failed, clicking instead"], rig.log.lines)
+        XCTAssertEqual(["accessibility action refused, clicking instead"], rig.log.lines)
 
         rig.workspace.serverWindows[999] = ServerWindow(number: 999, owner: 77, bounds: .zero)
         rig.pointer.windowsAtPoint = [999, 420]
@@ -406,8 +482,13 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual("click point is not in the target window: no window there", rig.log.lines.last)
         XCTAssertEqual(2, rig.pointer.clicks.count)
 
+        // A window of this app's covers the point, unless it's one that clicks go through.
         rig.workspace.serverWindows[500] = ServerWindow(number: 500, owner: Rig.own, bounds: .zero)
         rig.pointer.windowsAtPoint = [500, 420]
+        result = try await rig.desktop.click(found[0])
+        XCTAssertEqual(.fail("I couldn't click that (something else is on top of it)."), result)
+        XCTAssertEqual("click point is not in the target window: a window of this app's there", rig.log.lines.last)
+        rig.clickThrough.insert(500)
         result = try await rig.desktop.click(found[0])
         XCTAssertEqual(.ok("Clicked."), result)
 
@@ -420,6 +501,133 @@ final class NavigationTests: XCTestCase {
         result = try await rig.desktop.click(found[0])
         XCTAssertEqual(.fail("I couldn't click that (it needs the Accessibility permission)."), result)
         XCTAssertEqual(4, rig.pointer.clicks.count)
+    }
+
+    /// Jarvis's own pill, a reminder card or a balloon over the target cover it, as the C#'s `WindowFromPoint` finds
+    /// them: whether Accessibility's hit test finds them or the window server's list does, no click is sent (one
+    /// would act in Jarvis: mark a reminder done). Only the number badges' panel lets clicks through.
+    func testJarvissOwnWindowsCoverTheTarget() async throws {
+        let rig = Rig()
+        let box = make(kAXCheckBoxRole, "Bold", x: 100, y: 200, width: 40, height: 20)
+        let window = try front(rig, [box])
+        let found = try await rig.desktop.listClickable(window)
+        let covered = DesktopResult.fail("I couldn't click that (something else is on top of it).")
+        let ownWindows: [(name: String, number: Int)] = [("the pill", 501), ("a reminder card", 502), ("a balloon", 503)]
+        for own in ownWindows {
+            let panel = FakeElement.window(pid: Rig.own, title: own.name, number: own.number)
+            let part = FakeElement(pid: Rig.own, role: kAXButtonRole, title: "Done")
+            panel.children = [part]
+            rig.ax.screenHit = part
+            rig.pointer.windowsAtPoint = [own.number, 420]
+            var result = try await rig.desktop.click(found[0])
+            XCTAssertEqual(covered, result, own.name)
+            XCTAssertEqual(
+                "click point is not in the target window: a window of this app's there", rig.log.lines.last, own.name)
+
+            rig.ax.screenHit = nil
+            rig.workspace.serverWindows[own.number] = ServerWindow(number: own.number, owner: Rig.own, bounds: .zero)
+            result = try await rig.desktop.click(found[0])
+            XCTAssertEqual(covered, result, own.name)
+        }
+
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
+
+        // Should Accessibility ever find the badges' panel itself, the window server's list goes past it.
+        let badges = FakeElement.window(pid: Rig.own, title: "", number: 504)
+        rig.clickThrough.insert(504)
+        rig.ax.screenHit = badges
+        rig.pointer.windowsAtPoint = [504, 420]
+        let result = try await rig.desktop.click(found[0])
+        XCTAssertEqual(.ok("Clicked."), result)
+        XCTAssertEqual([CGPoint(x: 120, y: 210)], rig.pointer.clicks)
+    }
+
+    /// The Accessibility action's outcome decides what follows: done, nothing more; refused, a real click; no answer,
+    /// no click (the app may be doing it still: clicking again could do it twice, or close the menu it opened), and
+    /// the app is named; gone, nothing.
+    func testWhatFollowsAnAccessibilityAction() async throws {
+        let rig = Rig()
+        let save = make(kAXButtonRole, "Save", x: 300, y: 200, width: 60, height: 20)
+        save.actionNames = [kAXPressAction]
+        let row = make(kAXRowRole, x: 0, y: 100, width: 300, height: 20)
+        row.children = [text("Alpha.txt", y: 100)]
+        row.settable[kAXSelectedAttribute] = true
+        let window = try front(rig, [save, row])
+        let found = try await rig.desktop.listClickable(window)
+        let button = try XCTUnwrap(found.first { $0.name == "Save" })
+        let file = try XCTUnwrap(found.first { $0.name == "Alpha.txt" })
+        rig.pointer.windowsAtPoint = [420]
+
+        var result = try await rig.desktop.click(button)
+        XCTAssertEqual(.ok("Clicked."), result)
+        XCTAssertEqual([kAXPressAction], save.actions)
+
+        save.outcome = .noAnswer
+        result = try await rig.desktop.click(button)
+        XCTAssertEqual(.fail("TextEdit didn't answer, so I didn't click again."), result)
+        XCTAssertEqual("accessibility action got no answer, not clicking again", rig.log.lines.last)
+        row.outcome = .noAnswer
+        result = try await rig.desktop.click(file)
+        XCTAssertEqual(.fail("TextEdit didn't answer, so I didn't click again."), result)
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
+
+        save.outcome = .gone
+        result = try await rig.desktop.click(button)
+        XCTAssertEqual(.fail("I couldn't click that (that changed on screen)."), result)
+
+        save.outcome = .unsupported
+        result = try await rig.desktop.click(button)
+        XCTAssertEqual(.ok("Clicked."), result)
+        XCTAssertEqual([CGPoint(x: 330, y: 210)], rig.pointer.clicks)
+    }
+
+    /// Work whose 4 s are up never acts: the time is checked right before each Accessibility action and right before a
+    /// real click (after finding where it lands and waiting for modifier keys), and a row whose real click ran out of
+    /// time isn't selected instead.
+    func testNothingActsOnceTheTimeIsUp() throws {
+        let rig = Rig()
+        let save = make(kAXButtonRole, "Save", x: 300, y: 200, width: 60, height: 20)
+        save.actionNames = [kAXPressAction]
+        let box = make(kAXCheckBoxRole, "Bold", x: 100, y: 200, width: 40, height: 20)
+        let name = text("Applications", y: 100)
+        let row = make(kAXRowRole, subrole: kAXOutlineRowSubrole, x: 0, y: 100, width: 200, height: 20)
+        row.children = [name]
+        row.actionNames = [AXName.scrollToVisible]
+        row.settable[kAXSelectedAttribute] = true
+        _ = try front(rig, [save, box, row])
+        let window = try XCTUnwrap(rig.desktop.foregroundWindow())
+        rig.pointer.windowsAtPoint = [420]
+
+        let late = WorkToken()
+        late.cancel()
+        let rect = ScreenRect(x: 300, y: 200, width: 60, height: 20)
+        var result = rig.desktop.activateElement(save, rect, preferSelect: false, inPage: false, window, late)
+        XCTAssertEqual("timed out", result)
+        XCTAssertTrue(save.actions.isEmpty)
+
+        // The time runs out while finding where the click lands.
+        let token = WorkToken()
+        rig.ax.screenHit = box
+        rig.ax.onScreenHit = { token.cancel() }
+        result = rig.desktop.clickAt(CGPoint(x: 120, y: 210), window, token)
+        XCTAssertEqual("timed out", result)
+        XCTAssertEqual("click not sent: the time ran out", rig.log.lines.last)
+
+        // The time runs out while the row scrolls into view: it's neither clicked nor selected.
+        let rowToken = WorkToken()
+        rig.ax.onScreenHit = nil
+        rig.ax.hit = name
+        rig.ax.onPerform = { _, action in
+            if action == AXName.scrollToVisible {
+                rowToken.cancel()
+            }
+        }
+        let rowRect = ScreenRect(x: 0, y: 100, width: 200, height: 20)
+        result = rig.desktop.activateElement(row, rowRect, preferSelect: false, inPage: false, window, rowToken)
+        XCTAssertEqual("timed out", result)
+        XCTAssertEqual([AXName.scrollToVisible], row.actions)
+        XCTAssertTrue(row.changes.isEmpty)
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
     }
 
     /// A web grid's row (a chat list's) opens only on a real click: scrolled into view, then clicked on its centre when
@@ -454,8 +662,9 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual("grid item centre is covered by something else", rig.log.lines.last)
     }
 
-    /// An app's table or outline row is clicked for real when the click lands on it (Finder's sidebar goes to the
-    /// folder only then), and selected through Accessibility when something else is at its centre.
+    /// An app's table or outline row is clicked for real when the click lands on the row itself or its text (Finder's
+    /// sidebar goes to the folder only then), and selected through Accessibility when something else is at its centre,
+    /// a control inside the row included.
     func testClicksAnAppsRowForRealWhenTheClickLandsOnIt() async throws {
         let rig = Rig()
         let name = text("Applications", y: 100)
@@ -481,6 +690,24 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(.ok("Clicked."), result)
         XCTAssertEqual(1, rig.pointer.clicks.count)
         XCTAssertEqual(["AXSelected=true"], row.changes)
+
+        // A control in the row (a checkbox, a switch, Finder's eject button) isn't the row, even inside its cell.
+        let cell = make(kAXCellRole, x: 0, y: 100, width: 200, height: 20)
+        let eject = make(kAXButtonRole, "Eject", x: 90, y: 100, width: 20, height: 20)
+        cell.children = [eject]
+        row.children = [name, cell]
+        for control in [eject, make(kAXCheckBoxRole, x: 90, y: 100, width: 20, height: 20)] {
+            if control !== eject {
+                cell.children = [control]
+            }
+
+            rig.ax.hit = control
+            result = try await rig.desktop.click(applications)
+            XCTAssertEqual(.ok("Clicked."), result)
+        }
+
+        XCTAssertEqual(1, rig.pointer.clicks.count)
+        XCTAssertEqual(["AXSelected=true", "AXSelected=true", "AXSelected=true"], row.changes)
     }
 
     /// Accessibility's system-wide hit test says where a click lands, as the window server routes clicks: past the
