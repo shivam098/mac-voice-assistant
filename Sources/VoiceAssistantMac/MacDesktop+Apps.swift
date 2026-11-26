@@ -176,14 +176,26 @@ extension MacDesktop {
         return frontToBack(found)
     }
 
-    /// The app's standard windows (AXStandardWindow, or windows that don't say what they are).
+    /// The app's standard windows (AXStandardWindow, or windows that don't say what they are), minimized ones too, and
+    /// a hidden app's. macOS calls a minimized window a dialog (AXDialog), and every window of a hidden app, as it calls
+    /// an alert: a window that says it's a dialog counts only when it's minimized or its app is hidden.
     func windows(of process: RunningApp) -> [AppWindow] {
         let pid = process.processIdentifier
         let windows = (try? ax.elements(kAXWindowsAttribute, of: ax.application(pid))) ?? []
+        var hidden: Bool?
         return windows.compactMap { window -> AppWindow? in
             guard (try? ax.role(of: window)) == kAXWindowRole else { return nil }
             let subrole = try? ax.subrole(of: window)
-            guard subrole == nil || subrole == kAXStandardWindowSubrole else { return nil }
+            if subrole == kAXDialogSubrole {
+                if (try? ax.number(kAXMinimizedAttribute, of: window)) != 1 {
+                    let appHidden = hidden ?? isHidden(pid)
+                    hidden = appHidden
+                    guard appHidden else { return nil }
+                }
+            } else if subrole != nil && subrole != kAXStandardWindowSubrole {
+                return nil
+            }
+
             let info = WindowInfo(
                 handle: ax.windowNumber(of: window) ?? 0, processId: Int(pid), processName: process.processName,
                 title: (try? ax.string(kAXTitleAttribute, of: window)) ?? "", appName: process.name)

@@ -119,6 +119,8 @@ if [[ "$browser" == "chrome" ]]; then
 else
   python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$here" >"$results/server.log" 2>&1 &
   server=$!
+  # Stopped by the lab, not a job for bash to report.
+  disown "$server"
   port=""
   for _ in $(seq 1 100); do
     port="$(sed -n 's/^Serving HTTP on .* port \([0-9][0-9]*\) .*/\1/p' "$results/server.log" | head -n 1)"

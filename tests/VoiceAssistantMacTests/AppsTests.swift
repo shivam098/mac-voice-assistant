@@ -126,11 +126,13 @@ final class AppsTests: XCTestCase {
         XCTAssertTrue(rig.log.lines.contains("activation of TextEdit refused by macOS"))
     }
 
+    /// A minimized window, which macOS calls a dialog (AXDialog) while it's minimized, is restored.
     func testRestoresAMinimizedWindow() async throws {
         let rig = Rig()
         rig.activates()
         let window = textEditBehindFinder(rig)
         window[kAXMinimizedAttribute] = true
+        window[kAXSubroleAttribute] = kAXDialogSubrole
         let result = try await rig.desktop.openOrActivate(Self.textEdit, newWindow: false)
         XCTAssertTrue(result.success, result.message)
         XCTAssertEqual("AXMinimized=false", window.changes.first)

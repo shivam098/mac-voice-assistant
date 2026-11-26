@@ -76,13 +76,15 @@ also opens the app on the runner and checks that it starts into its UI (`scripts
 and a screenshot as the run's artifact (`launch-check`).
 
 The self-test ([docs/self-test.md](docs/self-test.md)) runs scripted transcripts through the real controller and
-desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into it and quits it, so leave the Mac alone
-while it runs (and give Terminal Accessibility):
+desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into it and quits it, and the NavigationLab
+runs the voice navigation acceptance tests (N1–N9) on its pages in Chrome or Safari, so leave the Mac alone while they
+run (and give Terminal Accessibility; for Safari, Terminal asks to control it):
 
 ```sh
 swift package update     # thumbfree-mac at the tip of its main, as CI uses it (Package.resolved isn't committed)
 swift build -c release
 tests/TextEditLab/run.sh .build/release/VoiceAssistant
+tests/NavigationLab/run.sh .build/release/VoiceAssistant chrome   # or safari, with Safari closed
 ```
 
 The Self-test workflow runs the labs on GitHub's runners for pull requests that touch the app, with each lab's result

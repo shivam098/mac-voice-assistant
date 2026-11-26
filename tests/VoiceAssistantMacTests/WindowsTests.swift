@@ -47,7 +47,8 @@ final class WindowsTests: XCTestCase {
 
     /// How each window shows (C#'s `Describe`): minimized, also when its app is hidden; maximized in full screen; else
     /// normal. Its frame, and the usable part of the screen it's on: the one with its centre, else the one it covers
-    /// most.
+    /// most. macOS calls a minimized window, and a hidden app's, a dialog (AXDialog); an alert, which is one, isn't
+    /// listed.
     func testSaysHowEachWindowShowsAndWhere() async throws {
         let rig = Rig()
         let main = ScreenArea(
@@ -64,12 +65,17 @@ final class WindowsTests: XCTestCase {
         let draft = FakeElement.window(
             title: "Draft.txt", number: 422, frame: CGRect(x: -300, y: 100, width: 400, height: 300))
         let old = FakeElement.window(title: "Old.txt", number: 423)
+        old[kAXSubroleAttribute] = kAXDialogSubrole
         old[kAXMinimizedAttribute] = true
-        rig.front(7, "com.apple.Music", "Music", window: .window(pid: 7, title: "Music", number: 70))
+        let alert = FakeElement.window(title: "", number: 424)
+        alert[kAXSubroleAttribute] = kAXDialogSubrole
+        let music = FakeElement.window(pid: 7, title: "Music", number: 70)
+        music[kAXSubroleAttribute] = kAXDialogSubrole
+        rig.front(7, "com.apple.Music", "Music", window: music)
         rig.ax.apps[7]?[kAXHiddenAttribute] = true
         rig.front(42, "com.apple.TextEdit", "TextEdit", window: notes)
-        rig.ax.apps[42]?[kAXWindowsAttribute] = [notes, movie, draft, old]
-        rig.workspace.windowOrder = [420, 421, 422]
+        rig.ax.apps[42]?[kAXWindowsAttribute] = [notes, movie, draft, old, alert]
+        rig.workspace.windowOrder = [424, 420, 421, 422]
 
         let listed = try await rig.desktop.listWindows()
         XCTAssertEqual([420, 421, 422, 70, 423], listed.map(\.window.handle))
@@ -91,7 +97,9 @@ final class WindowsTests: XCTestCase {
     /// when it's among them.
     func testListsTwelveAtMost() async throws {
         let rig = Rig()
-        let windows = (1...15).map { FakeElement.window(title: "Note \($0)", number: $0) }
+        let windows: [FakeElement] = (1...15).map { (number: Int) -> FakeElement in
+            FakeElement.window(title: "Note \(number)", number: number)
+        }
         rig.front(42, "com.apple.TextEdit", "TextEdit", window: windows[4])
         rig.ax.apps[42]?[kAXWindowsAttribute] = windows
         rig.workspace.windowOrder = Array(1...15)
