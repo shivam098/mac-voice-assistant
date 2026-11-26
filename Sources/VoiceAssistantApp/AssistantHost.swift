@@ -56,6 +56,11 @@ public final class AssistantHost: @unchecked Sendable {
     static let wakeCheckMaxTokens = 8
     static let wakeCheckSeconds = 3
 
+    /// The standby check's options: Windows' (no prompt, and one pass without temperature fallback).
+    static let wakeCheckOptions = WhisperOptions(
+        threads: wakeCheckThreads, audioContextSize: wakeCheckAudioContext, maxTokens: wakeCheckMaxTokens,
+        temperatureFallback: false)
+
     // MARK: Events (C#'s events), raised through `post`
 
     /// A status line, from the controller or the host.
@@ -304,9 +309,9 @@ public final class AssistantHost: @unchecked Sendable {
         startQueue()
         guard settings.discoverStartMenuApps, let discover = parts.discoverApps else { return }
         let found = Task.detached(priority: .userInitiated) { [self] in
+            // The desktop logs how many it found.
             let apps = discover()
             try? await runOnQueue { [self] in catalog.setDiscoveredApps(apps) }
-            Log.info("installed apps discovered: \(apps.count)")
         }
 
         _ = await Blocking.finished(found, within: 25)
@@ -353,7 +358,7 @@ public final class AssistantHost: @unchecked Sendable {
         await parts.microphone.stop()
         sounds.close()
         if drained {
-            // The standby check shares the English model: freed first.
+            // The standby check shares the English model's weights, which are freed once both have closed.
             wakeModel.value?.close()
             englishModel.value?.close()
             hinglishModel.value?.close()
@@ -472,13 +477,11 @@ public final class AssistantHost: @unchecked Sendable {
     private func discoverApps() {
         guard settings.discoverStartMenuApps, let discover = parts.discoverApps else { return }
 
-        // The catalog belongs to the controller's queue, so the list is handed over there.
+        // The catalog belongs to the controller's queue, so the list is handed over there. The desktop logs how many
+        // it found (C#'s host logs it itself).
         Task.detached(priority: .utility) { [self] in
             let apps = discover()
-            enqueue { [self] in
-                catalog.setDiscoveredApps(apps)
-                Log.info("installed apps discovered: \(apps.count)")
-            }
+            enqueue { [self] in catalog.setDiscoveredApps(apps) }
         }
     }
 
@@ -529,11 +532,7 @@ public final class AssistantHost: @unchecked Sendable {
             _ = try await transcribe(model, Self.silence)
 
             // The standby pre-check: the same model on the first seconds of each phrase, cut short.
-            let check = try speech.variant(
-                of: model,
-                options: WhisperOptions(
-                    threads: Self.wakeCheckThreads, audioContextSize: Self.wakeCheckAudioContext,
-                    maxTokens: Self.wakeCheckMaxTokens, temperatureFallback: false))
+            let check = try speech.variant(of: model, options: Self.wakeCheckOptions)
             wakeModel.value = check
             _ = try await transcribe(check, Self.silence)
             if let vadPath = parts.models.find(settings.vadModelFile) {

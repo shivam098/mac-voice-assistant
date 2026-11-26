@@ -1,0 +1,38 @@
+# The TextEdit lab: Voice Assistant's self-test on TextEdit through the real desktop (docs/self-test.md). Run it with
+# tests/TextEditLab/run.sh, which has TextEdit start with a new document and quits it afterwards.
+# stoponfail: if TextEdit's new document isn't in front, stop rather than type into whatever is.
+stoponfail
+listen
+say: hey jarvis open textedit
+wait 2000
+fg
+expecttitle: Untitled
+
+# Voice typing into the document, with a line break.
+say: start typing
+say: hello from the self test.
+say: new line
+say: a second line.
+wait 500
+read
+expectvalue: Hello from the self test.\nA second line.
+say: stop typing
+
+# Dictation, as with the dictation key: pasted, then typed with keys, each after a space.
+ptt: a dictated sentence.
+wait 500
+expect: A second line. A dictated sentence.
+insert Type
+ptt: typed with keys.
+wait 1000
+read
+expectvalue: Hello from the self test.\nA second line. A dictated sentence. Typed with keys.
+insert Paste
+
+# Nothing typed is left in TextEdit: read first, so a box that can't be read doesn't pass as empty.
+say: start typing
+say: clear the box
+wait 500
+read
+expectvalue:
+say: stop typing

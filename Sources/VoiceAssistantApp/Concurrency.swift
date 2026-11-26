@@ -237,3 +237,63 @@ public final class HostSubscription: @unchecked Sendable {
         action?()
     }
 }
+
+/// The app's notices for the UI (Windows' tray balloons): an event like `HostEvent<String>`, except that the notices
+/// still in force also reach a handler added later, so a menu or window that starts listening after launch still shows
+/// them. A notice sent with a topic is in force until it's withdrawn or another notice of that topic replaces it; one
+/// without a topic is sent once. Handlers run on the thread that sends, the main thread in the app. Safe from any
+/// thread.
+public final class NoticeEvent: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handlers: [(id: Int, run: (String) -> Void)] = []
+    private var lastId = 0
+    private var standing: [(topic: String, message: String)] = []
+
+    public init() {}
+
+    /// The notices in force, oldest first.
+    public var inForce: [String] { lock.withLock { standing.map { $0.message } } }
+
+    /// Adds a handler (C#'s `+=`): it runs at once with each notice in force, oldest first, then with each notice sent,
+    /// until the subscription is cancelled.
+    @discardableResult
+    public func subscribe(_ handler: @escaping (String) -> Void) -> HostSubscription {
+        let (id, replay) = lock.withLock { () -> (Int, [String]) in
+            lastId += 1
+            handlers.append((id: lastId, run: handler))
+            return (lastId, standing.map { $0.message })
+        }
+
+        for message in replay {
+            handler(message)
+        }
+
+        return HostSubscription { [weak self] in
+            guard let self else { return }
+            self.lock.withLock { self.handlers.removeAll { $0.id == id } }
+        }
+    }
+
+    /// Runs the handlers with `message`. With a `topic`, the notice stays in force for handlers added later, in place
+    /// of that topic's earlier one, until `withdraw(topic)`.
+    func send(_ message: String, topic: String? = nil) {
+        let current = lock.withLock { () -> [(String) -> Void] in
+            if let topic {
+                standing.removeAll { $0.topic == topic }
+                standing.append((topic: topic, message: message))
+            }
+
+            return handlers.map { $0.run }
+        }
+
+        for handler in current {
+            handler(message)
+        }
+    }
+
+    /// The topic's notice no longer holds: handlers added later don't get it. The handlers already listening aren't
+    /// told.
+    func withdraw(_ topic: String) {
+        lock.withLock { standing.removeAll { $0.topic == topic } }
+    }
+}

@@ -91,6 +91,30 @@ final class SelfTestTests: XCTestCase {
         XCTAssertTrue(stopped.contains("   brain download: failed\n"))
     }
 
+    /// Without Accessibility the desktop can neither read nor type: the run says so and runs nothing.
+    func testWithoutAccessibilityNothingRuns() async throws {
+        let output = try await run("listen\nsay: hey jarvis\n", missingPermissions: ["accessibility", "postEvents"])
+
+        XCTAssertEqual(
+            output,
+            "!! missing permissions: accessibility, postEvents. Allow the app, or the terminal that starts it, in "
+                + "System Settings › Privacy & Security › Accessibility. Nothing was run.\n")
+    }
+
+    /// Each line reaches the output file as it comes, so a run that hangs or is stopped leaves what it did.
+    func testTheOutputIsWrittenAsTheRunGoes() async throws {
+        let folder = TempFolder()
+        defer { folder.remove() }
+        let output = folder.file("lab.out.txt")
+        let running = start("listen\nwait 3000\nfg\n", in: folder, output: output)
+
+        let waiting = await eventually(2.5) { TestFiles.text(output).hasSuffix("> wait 3000\n") }
+        XCTAssertTrue(waiting)
+        XCTAssertTrue(TestFiles.text(output).contains("> listen\n   [Standby] Info: Say “…” to give a command.\n"))
+        await running.value
+        XCTAssertTrue(TestFiles.text(output).hasSuffix("> wait 3000\n> fg\n   foreground: com.apple.TextEdit\n"))
+    }
+
     func testStatusLinesAreRedacted() {
         XCTAssertEqual(
             SelfTest.redact("Typing into “Notes.txt”. Say “stop typing” when done."),
@@ -105,10 +129,24 @@ final class SelfTestTests: XCTestCase {
 
     private let insertMethod = Locked("Paste")
 
-    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world."), and `brain`.
-    private func run(_ script: String, brain: AssistantBrain? = nil) async throws -> String {
+    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world."), `brain`, and the
+    /// permissions the desktop is missing.
+    private func run(
+        _ script: String, brain: AssistantBrain? = nil, missingPermissions: [String] = []
+    ) async throws -> String {
         let folder = TempFolder()
         defer { folder.remove() }
+        let output = folder.file("lab.out.txt")
+        let running = start(script, in: folder, output: output, brain: brain, missingPermissions: missingPermissions)
+        await running.value
+        return TestFiles.text(output)
+    }
+
+    /// The self-test running `script` in `folder`, writing to `output`.
+    private func start(
+        _ script: String, in folder: TempFolder, output: String, brain: AssistantBrain? = nil,
+        missingPermissions: [String] = []
+    ) -> Task<Void, Never> {
         let path = folder.file("lab.selftest.txt")
         TestFiles.write(path, script)
         let desktop = FakeDesktop()
@@ -122,11 +160,13 @@ final class SelfTestTests: XCTestCase {
         let platform = SelfTestPlatform(
             focusedText: { (kind: "AXTextArea", text: "Hello world.") },
             clipboardFingerprint: { "formats=[(empty)] textHash=\(SelfTest.hash("")) len=0" },
-            setInsertMethod: { insertMethod.value = $0 })
+            setInsertMethod: { insertMethod.value = $0 },
+            missingPermissions: { missingPermissions })
         let events = DispatchQueue(label: "VoiceAssistantAppTests.selfTest")
-        await SelfTest.run(
-            scriptPath: path, outputPath: folder.file("lab.out.txt"), settings: AppSettings(), paths: paths,
-            parts: parts, platform: platform, post: { events.async(execute: $0) })
-        return TestFiles.text(folder.file("lab.out.txt"))
+        return Task {
+            await SelfTest.run(
+                scriptPath: path, outputPath: output, settings: AppSettings(), paths: paths, parts: parts,
+                platform: platform, post: { events.async(execute: $0) })
+        }
     }
 }

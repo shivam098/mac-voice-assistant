@@ -1,5 +1,6 @@
 import Foundation
 import ThumbFreeCore
+import ThumbFreeSpeech
 import VoiceAssistantCore
 import VoiceAssistantMac
 import XCTest
@@ -22,6 +23,28 @@ final class AssistantHostTests: XCTestCase {
             rig.speech.wakeOptions,
             WhisperOptions(threads: 2, audioContextSize: 256, maxTokens: 8, temperatureFallback: false))
         await rig.close()
+    }
+
+    /// ThumbFreeSpeech runs the standby check with exactly Windows' options, on the loaded small.en rather than a
+    /// second copy of it (Whisper.net's `WithOptions`).
+    func testTheStandbyCheckSharesTheLoadedModelWithWindowsOptions() throws {
+        let loaded = Locked<[FakeRecognizer]>([])
+        let speech = WhisperSpeech { _, options in
+            let recognizer = FakeRecognizer(options)
+            loaded.update { $0.append(recognizer) }
+            return recognizer
+        }
+
+        let model = try speech.loadModel(
+            at: "/models/ggml-small.en-q8_0.bin", options: WhisperOptions(threads: 4, audioContextSize: 768))
+        _ = try speech.variant(of: model, options: AssistantHost.wakeCheckOptions)
+
+        XCTAssertEqual(loaded.value.count, 1)
+        let english = try XCTUnwrap(loaded.value.first)
+        XCTAssertEqual(english.options, RecognizerOptions(threads: 4, audioContextSize: 768))
+        let standby = RecognizerOptions(
+            threads: 2, audioContextSize: 256, prompt: nil, maxTokens: 8, temperatureFallback: false)
+        XCTAssertEqual(english.shared.map(\.options), [standby])
     }
 
     func testTheFirstRunDownloadsTheModelsWithTheProgressInThePill() async throws {
@@ -80,6 +103,75 @@ final class AssistantHostTests: XCTestCase {
         await rig.close()
     }
 
+    /// Whisper's usual words for noise ("you", "thanks for watching") aren't typed from a short phrase, as on Windows;
+    /// from a phrase long enough to have been said, they are.
+    func testWhispersWordsForNoiseArentTypedFromAShortPhrase() async throws {
+        let rig = HostRig()
+        _ = await rig.startListening()
+        let host = rig.host
+        try await host.runOnQueue { try await host.controller.handleTranscript("Hey Jarvis, start typing.", 0.9) }
+        XCTAssertEqual(rig.host.mode, .dictation)
+        rig.speech.english.always = "Thanks for watching!"
+
+        rig.microphone.feed(TestAudio.typedPhrase(0.4))
+        try await rig.settle()
+        XCTAssertEqual(rig.speech.english.calls.count, 1)
+        XCTAssertEqual(rig.desktop.typed, [])
+
+        rig.microphone.feed(TestAudio.typedPhrase(2.5))
+        let typed = await eventually { rig.desktop.typed.count == 1 }
+        XCTAssertTrue(typed)
+        await rig.close()
+    }
+
+    /// While the queue is busy, speech waits in it six utterances deep at most; more is dropped, as on Windows.
+    func testSpeechWaitsSixUtterancesDeepAtMost() async throws {
+        let rig = HostRig()
+        _ = await rig.startListening()
+        let busy = Locked(true)
+        rig.host.enqueue {
+            while busy.value {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+
+        for _ in 0..<8 {
+            rig.microphone.feed(TestAudio.phrase())
+        }
+
+        busy.value = false
+        let checked = await eventually { rig.speech.wake.calls.count == 6 }
+        try await rig.settle()
+        XCTAssertTrue(checked)
+        XCTAssertEqual(rig.speech.wake.calls.count, 6)
+        await rig.close()
+    }
+
+    /// Where Silero finds no speech (music, noise), a phrase isn't transcribed, and a dictation says it heard none.
+    func testSoundWithoutSpeechIsntTranscribed() async throws {
+        var settings = HostRig.settings()
+        settings.livePreview = false
+        let rig = HostRig(settings: settings)
+        _ = await rig.startListening()
+        rig.speech.detector.findsSpeech = false
+
+        rig.microphone.feed(TestAudio.phrase())
+        try await rig.settle()
+        XCTAssertEqual(rig.speech.wake.calls, [])
+
+        rig.host.beginDictationCapture(1)
+        let recording = await eventually { rig.log.labels.contains(DictationLabels.listening) }
+        XCTAssertTrue(recording)
+        rig.microphone.feed(TestAudio.tone(1))
+        rig.host.endDictationCapture(cancel: false)
+
+        let said = await eventually { rig.log.messages.contains("I didn't hear any speech.") }
+        XCTAssertTrue(said)
+        XCTAssertEqual(rig.speech.english.calls, [])
+        XCTAssertEqual(rig.desktop.typed, [])
+        await rig.close()
+    }
+
     func testPausingTurnsTheMicrophoneOffAndResumingOn() async throws {
         let rig = HostRig()
         _ = await rig.startListening()
@@ -94,6 +186,53 @@ final class AssistantHostTests: XCTestCase {
         let resumed = await eventually { rig.log.messages.filter { $0 == HostRig.listening }.count == 2 }
         XCTAssertTrue(resumed)
         XCTAssertTrue(rig.microphone.isRunning)
+        await rig.close()
+    }
+
+    /// "Pause listening" turns the microphone off once the command's work is over, as the hotkey does.
+    func testPausingByVoiceTurnsTheMicrophoneOff() async throws {
+        let rig = HostRig()
+        _ = await rig.startListening()
+        rig.speech.wake.hears("Hey Jarvis, pause listening.")
+        rig.speech.english.hears("Hey Jarvis, pause listening.")
+        rig.microphone.feed(TestAudio.phrase())
+
+        let paused = await eventually { rig.log.messages.contains("Paused. Microphone is off.") }
+        try await rig.settle()
+        XCTAssertTrue(paused)
+        XCTAssertFalse(rig.microphone.isRunning)
+        XCTAssertEqual(rig.host.mode, .paused)
+
+        rig.host.toggleListening()
+        let resumed = await eventually { rig.microphone.isRunning }
+        XCTAssertTrue(resumed)
+        await rig.close()
+    }
+
+    /// ⌃⇧Space during a dictation pauses listening, but the dictation keeps the microphone until it ends; then its
+    /// text is typed and the microphone goes off.
+    func testPausingDuringADictationLeavesItTheMicrophoneUntilItEnds() async throws {
+        var settings = HostRig.settings()
+        settings.livePreview = false
+        let rig = HostRig(settings: settings)
+        _ = await rig.startListening()
+        rig.host.beginDictationCapture(1)
+        let recording = await eventually { rig.log.labels.contains(DictationLabels.listening) }
+        XCTAssertTrue(recording)
+
+        rig.host.toggleListening()
+        let paused = await eventually { rig.log.messages.contains("Paused. Microphone is off.") }
+        XCTAssertTrue(paused)
+        XCTAssertTrue(rig.microphone.isRunning)
+
+        rig.microphone.feed(TestAudio.tone(1))
+        rig.speech.english.hears("hello world")
+        rig.host.endDictationCapture(cancel: false)
+        let typed = await eventually { rig.desktop.typed.count == 1 }
+        try await rig.settle()
+        XCTAssertTrue(typed)
+        XCTAssertFalse(rig.microphone.isRunning)
+        XCTAssertEqual(rig.host.mode, .paused)
         await rig.close()
     }
 

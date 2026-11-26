@@ -52,6 +52,20 @@ public final class AppController: NSObject, NSApplicationDelegate {
     nonisolated static let thumbFreeNote =
         "ThumbFree is running too, with the same Fn key: quit one of them, or text is typed twice."
 
+    /// What the warning says while macOS doesn't let the desktop act.
+    nonisolated static let desktopNotAllowedNote =
+        "Voice Assistant can't open apps or type for you yet: allow it in System Settings › Privacy & Security › "
+        + "Accessibility."
+
+    /// The topics of the notices that stay in force while what they say holds (`NoticeEvent`).
+    enum NoticeTopic {
+        static let thumbFree = "thumbFree"
+        static let dictationKey = "dictationKey"
+        static let desktop = "desktop"
+
+        static func hotkey(_ purpose: String) -> String { "hotkey " + purpose }
+    }
+
     /// Runs the app until it quits.
     public static func main(_ arguments: [String], parts: AppParts = .standard) {
         let options = LaunchOptions(arguments)
@@ -80,9 +94,18 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// window (Windows' ShowWindow event).
     public let showRequested = HostEvent<Void>()
 
-    /// Something to tell in a notification (Windows' tray balloons): a hotkey another app has, the dictation key that
-    /// can't be seen yet, ThumbFree running too, a restart that failed.
-    public let notice = HostEvent<String>()
+    /// Something to tell in a notification (Windows' tray balloons): a hotkey another app has or settings.json's chord
+    /// that can't be read, the dictation key that can't be seen yet, the desktop's missing permission, ThumbFree
+    /// running too, a restart that failed. The notices still in force reach a handler added later too, so the UI shows
+    /// them whenever it subscribes; each is withdrawn once it no longer holds (the hotkey registered after a keyboard
+    /// layout change, the permission given, ThumbFree quit). A failed restart is told once. Withdrawing isn't announced
+    /// to the handlers already listening, so a lasting banner should follow `thumbFreeChanged` or
+    /// `missingDesktopPermissions`, not `notice` alone.
+    public let notice = NoticeEvent()
+
+    /// ThumbFree started or quit while both use the same key: `thumbFreeRunsToo` changed, so the UI shows or clears its
+    /// warning.
+    public let thumbFreeChanged = HostEvent<Bool>()
 
     /// The assistant; nil until it starts, and in a build without a desktop.
     public private(set) var host: AssistantHost?
@@ -99,6 +122,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// ThumbFree runs too with the same key, so text would be typed twice.
     public private(set) var thumbFreeRunsToo = false
 
+    /// What the desktop may not do yet: the permissions macOS hasn't given (Accessibility, which also lets it send
+    /// keys), read now, for the UI to offer them.
+    public var missingDesktopPermissions: [Permissions.Kind] { desktop?.missingPermissions?() ?? [] }
+
     // MARK: Parts
 
     private let paths: AppPaths
@@ -107,10 +134,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private let instance: SingleInstance
     private let insertMethod = Locked("Paste")
     private let reader = FocusedField.Reader()
+    private var desktop: DesktopParts?
     private var statusItem: NSStatusItem?
     private var hotkeys: [GlobalHotkey] = []
     private var keys: HotkeyTap?
     private var tapAllowed: HotkeyTap.Mode?
+    private var desktopAllowed = true
     private var permissionTimer: Timer?
     private var otherApp: OtherApp?
     private var subscriptions: [HostSubscription] = []
@@ -174,14 +203,17 @@ public final class AppController: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(showRequestedByAnotherCopy(_:)), name: SingleInstance.showNotification,
             object: nil, suspensionBehavior: .deliverImmediately)
-        guard let hostParts = parts.hostParts(settings, paths, insertMethod: insertMethod) else {
-            Log.info("no Mac desktop in this build: the assistant doesn't start")
+        guard let desktop = parts.desktopParts(insertMethod: insertMethod) else {
+            Log.info("no desktop in this build: the assistant doesn't start")
             return
         }
 
+        self.desktop = desktop
+
         // Chromium and Electron apps describe their pages to Accessibility only once an assistive app asks.
         reader.startWaking()
-        let host = AssistantHost(settings: settings, paths: paths, parts: hostParts, board: board)
+        let host = AssistantHost(
+            settings: settings, paths: paths, parts: parts.hostParts(settings, paths, desktop: desktop), board: board)
         self.host = host
         subscriptions.append(host.captureStopped.subscribe { [weak self] id in
             MainActor.assumeIsolated { self?.captureStopped(id) }
@@ -192,6 +224,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
 
         warnIfThumbFreeRuns()
+        checkDesktopPermissions()
+        watchPermissions()
         host.start()
     }
 
@@ -270,15 +304,30 @@ public final class AppController: NSObject, NSApplicationDelegate {
         register(settings.macDictationLanguageHotkey, "switch dictation language") { host.toggleDictationLanguage() }
     }
 
-    private func register(_ chord: String, _ purpose: String, _ pressed: @escaping () -> Void) {
+    /// Registers one of the hotkeys, telling the UI when another app has it or settings.json's chord can't be read (a
+    /// Windows hotkey such as F24, say); both notices stay in force for a UI that subscribes later.
+    func register(_ chord: String, _ purpose: String, _ pressed: @escaping () -> Void) {
+        let topic = NoticeTopic.hotkey(purpose)
         do {
             let hotkey = try GlobalHotkey(chord, pressed: pressed)
             hotkeys.append(hotkey)
+            let taken = "\(AppSettings.hotkeyLabel(chord)) (\(purpose)) is used by another app."
             if !hotkey.isRegistered {
-                tell("\(AppSettings.hotkeyLabel(chord)) (\(purpose)) is used by another app.")
+                tell(taken, topic: topic)
+            }
+
+            // A letter's hotkey moves with the keyboard layout, maybe to a key another app has.
+            hotkey.registrationChanged = { [weak self] registered in
+                if registered {
+                    Log.info("hotkey for \(purpose) registered again after a keyboard layout change")
+                    self?.notice.withdraw(topic)
+                } else {
+                    Log.warn("hotkey for \(purpose) lost after a keyboard layout change")
+                    self?.tell(taken, topic: topic)
+                }
             }
         } catch {
-            tell(AssistantHost.message(error))
+            tell(AssistantHost.message(error), topic: topic)
         }
     }
 
@@ -306,16 +355,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         tapAllowed = allowedTap()
         let mode = keys.start()
         Log.info("dictation keys: \(mode)")
-        if mode == .off {
-            tell(
-                "Voice Assistant can't see the \(settings.dictationKeyLabel) key yet: allow it in System Settings › "
-                    + "Privacy & Security › Accessibility.")
-        }
-
-        // The tap is made again once a permission is given (or taken back) in System Settings.
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.permissionsMayHaveChanged() }
-        }
+        noteDictationKeys(mode)
     }
 
     private func keyCommand(_ command: FnTapKeys.Command) {
@@ -360,13 +400,38 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Every 3 s: the tap is made again once a permission is given (or taken back) in System Settings, and the
+    /// desktop's warning is withdrawn once it's allowed.
+    private func watchPermissions() {
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.permissionsMayHaveChanged() }
+        }
+    }
+
     private func permissionsMayHaveChanged() {
+        checkDesktopPermissions()
         guard let keys, !recording else { return }
         let allowed = allowedTap()
         if allowed != tapAllowed {
             tapAllowed = allowed
-            Log.info("dictation keys: \(keys.start())")
+            let mode = keys.start()
+            Log.info("dictation keys: \(mode)")
+            noteDictationKeys(mode)
         }
+    }
+
+    /// Whether the dictation key can be seen: while it can't, a notice says where to allow it.
+    private func noteDictationKeys(_ mode: HotkeyTap.Mode) {
+        guard mode == .off else {
+            notice.withdraw(NoticeTopic.dictationKey)
+            return
+        }
+
+        let key = settings?.dictationKeyLabel ?? "Fn"
+        tell(
+            "Voice Assistant can't see the \(key) key yet: allow it in System Settings › Privacy & Security › "
+                + "Accessibility.",
+            topic: NoticeTopic.dictationKey)
     }
 
     /// The tap the permissions allow: active with the right to post events, else listen-only with Input Monitoring.
@@ -394,7 +459,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     // MARK: Telling
 
     /// ThumbFree uses Fn too: with both listening, every dictation would be typed twice. It watches for Voice Assistant
-    /// the same way.
+    /// the same way. The warning is in force while both run, and `thumbFreeChanged` says when that changes.
     private func warnIfThumbFreeRuns() {
         if otherApp == nil {
             let other = OtherApp(otherThan: Bundle.main.bundleIdentifier ?? VoiceAssistantApp.bundleIdentifier)
@@ -403,19 +468,45 @@ public final class AppController: NSObject, NSApplicationDelegate {
             otherApp = other
         }
 
-        let clash = otherApp?.isRunning == true && settings?.pushToTalk == true && settings?.dictationKey == .fn
+        let running = otherApp?.isRunning == true
+        let sameKey = settings?.pushToTalk == true && settings?.dictationKey == .fn
+        let clash = running && sameKey
+        guard clash != thumbFreeRunsToo else { return }
         thumbFreeRunsToo = clash
         if clash {
             Log.warn("ThumbFree is running too")
             host?.report(.warning, Self.thumbFreeNote)
-            notice.send(Self.thumbFreeNote)
+            notice.send(Self.thumbFreeNote, topic: NoticeTopic.thumbFree)
+        } else {
+            Log.info("ThumbFree isn't running any more")
+            notice.withdraw(NoticeTopic.thumbFree)
         }
+
+        thumbFreeChanged.send(clash)
     }
 
-    /// A notice for the UI to show (Windows' tray balloon), and the log.
-    private func tell(_ message: String) {
+    /// A notice for the UI to show (Windows' tray balloon), and the log; with a `topic`, it stays in force until it's
+    /// withdrawn.
+    private func tell(_ message: String, topic: String? = nil) {
         Log.warn("notice: \(message)")
-        notice.send(message)
+        notice.send(message, topic: topic)
+    }
+
+    /// The desktop opens apps, reads windows and types through Accessibility, which Windows needs no permission for:
+    /// until macOS allows it, commands can't act, so this says where it's allowed, and withdraws it once it is. (The
+    /// desktop asks again at each call, so allowing it works without a restart.)
+    private func checkDesktopPermissions() {
+        let missing = missingDesktopPermissions
+        guard missing.isEmpty != desktopAllowed else { return }
+        desktopAllowed = missing.isEmpty
+        if desktopAllowed {
+            Log.info("desktop permissions given")
+            notice.withdraw(NoticeTopic.desktop)
+        } else {
+            Log.warn("desktop permissions missing: \(missing.map(\.rawValue).joined(separator: ", "))")
+            host?.report(.warning, Self.desktopNotAllowedNote)
+            tell(Self.desktopNotAllowedNote, topic: NoticeTopic.desktop)
+        }
     }
 
     private func restarted(_ started: Bool) {
@@ -435,10 +526,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func runSelfTest(_ files: LaunchOptions.SelfTestFiles) {
         Log.start(in: paths.logs)
+        Log.info("self-test \(Self.version)")
         let settings = AppSettings.loadOrCreate(from: paths.settingsFile)
         insertMethod.value = settings.insertMethod
-        guard let hostParts = parts.hostParts(settings, paths, insertMethod: insertMethod) else {
-            let message = "!! This build has no Mac desktop yet, so the self-test can't run.\n"
+        guard let desktop = parts.desktopParts(insertMethod: insertMethod) else {
+            let message = "!! This build has no desktop, so the self-test can't run.\n"
             try? Data(message.utf8).write(to: URL(fileURLWithPath: files.output))
             NSApp.terminate(nil)
             return
@@ -446,7 +538,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         reader.startWaking()
         let paths = self.paths
-        let platform = SelfTestPlatform.mac(insertMethod)
+        let hostParts = parts.hostParts(settings, paths, desktop: desktop)
+        let platform = SelfTestPlatform.mac(insertMethod, desktop: desktop)
         Task { @MainActor in
             await SelfTest.run(
                 scriptPath: files.script, outputPath: files.output, settings: settings, paths: paths,

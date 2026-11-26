@@ -217,6 +217,10 @@ public final class GlobalHotkey {
     /// False when another app has the chord.
     public private(set) var isRegistered = false
 
+    /// Runs when a keyboard layout change moved a letter's hotkey and that changed whether it's registered: false when
+    /// another app has the key that types the letter now, so the hotkey does nothing; true when it's registered again.
+    public var registrationChanged: (@MainActor (_ isRegistered: Bool) -> Void)?
+
     nonisolated static let signature: OSType = 0x5641_484B
 
     /// The hotkeys registered now, by id.
@@ -270,12 +274,17 @@ public final class GlobalHotkey {
         isRegistered = false
     }
 
-    /// The keyboard layout changed: each letter's hotkey moves to the key that types the letter now.
+    /// The keyboard layout changed: each letter's hotkey moves to the key that types the letter now, which another app
+    /// may have.
     fileprivate static func layoutChanged() {
         for hotkey in registered.values {
             if case .character = hotkey.chord.key {
+                let wasRegistered = hotkey.isRegistered
                 hotkey.release()
                 hotkey.register()
+                if hotkey.isRegistered != wasRegistered {
+                    hotkey.registrationChanged?(hotkey.isRegistered)
+                }
             }
         }
     }

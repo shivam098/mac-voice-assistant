@@ -65,5 +65,21 @@ never replaced.
 `VoiceAssistant-<version>.dmg` in `dist/`. The App workflow runs it for every pull request and every change to `main`
 that touches the app, and keeps the `.dmg` as the run's artifact (`VoiceAssistant-dmg`). To try one, open the `.dmg`,
 drag the app to Applications, open it, and the first time choose System Settings › Privacy & Security › Open Anyway.
-For now it's an icon in the menu bar that starts the log (`~/Library/Logs/VoiceAssistant`) and the settings
-(`~/Library/Application Support/VoiceAssistant/settings.json`), and quits.
+Its window and pill aren't there yet (the menu bar icon only quits), but the assistant runs: the first time it
+downloads the speech model (about 264 MB) and asks for the microphone, and it needs Accessibility (System Settings ›
+Privacy & Security › Accessibility) to open apps and type. Then "Hey Jarvis" and tap-to-dictate with Fn work, and what
+happens is in the log (`~/Library/Logs/VoiceAssistant`). The settings are in
+`~/Library/Application Support/VoiceAssistant/settings.json`.
+
+The self-test ([docs/self-test.md](docs/self-test.md)) runs scripted transcripts through the real controller and
+desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into it and quits it, so leave the Mac alone
+while it runs (and give Terminal Accessibility):
+
+```sh
+swift package update     # thumbfree-mac at the tip of its main, as CI uses it (Package.resolved isn't committed)
+swift build -c release
+tests/TextEditLab/run.sh .build/release/VoiceAssistant
+```
+
+The Self-test workflow runs the labs on GitHub's runners for pull requests that touch the app, with each lab's result
+in the job's summary, and keeps their output and the app's log as the run's artifact (`self-test-results`).

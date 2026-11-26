@@ -1,0 +1,67 @@
+name: Self-test
+
+# The app's scripted self-test on the runner's own desktop (docs/self-test.md): the release build's real controller and
+# MacDesktop drive TextEdit through Accessibility, as the acceptance labs do. GitHub's macOS runners let what a step
+# starts use Accessibility and send keys. Each lab's result and output are in the job's summary; its output and the
+# app's log are this run's artifact.
+on:
+  pull_request:
+    paths:
+      - "Sources/**"
+      - "tests/*Lab/**"
+      - "scripts/self-test.sh"
+      - "Package.swift"
+      - ".github/workflows/self-test.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  labs:
+    name: Self-test on the runner's desktop
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tools
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # The Mac workflow's last build, to start from; this workflow keeps none of its own.
+      - uses: actions/cache/restore@v5
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-self-test
+          restore-keys: |
+            spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-
+            spm-${{ runner.os }}-
+
+      - name: Resolve (thumbfree-mac at the tip of main)
+        run: |
+          swift package update
+          cat Package.resolved
+
+      - name: Build
+        run: swift build -c release --product VoiceAssistant
+
+      # Each lab writes its output and the app's log to $RUNNER_TEMP/self-test/<lab>. Further labs (NavigationLab) go
+      # after it with `if: ${{ !cancelled() }}`, so one failing lab doesn't hide the others.
+      - name: TextEdit lab
+        run: |
+          app="$(swift build -c release --show-bin-path)/VoiceAssistant"
+          tests/TextEditLab/run.sh "$app" "$RUNNER_TEMP/self-test/textedit"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: self-test-results
+          path: ${{ runner.temp }}/self-test
+          if-no-files-found: warn
