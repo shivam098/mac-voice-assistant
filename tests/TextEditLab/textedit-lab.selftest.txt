@@ -29,9 +29,10 @@ read
 expectvalue: Hello from the self test.\nA second line. A dictated sentence. Typed with keys.
 insert Paste
 
-# Nothing typed is left in TextEdit.
+# Nothing typed is left in TextEdit: read first, so a box that can't be read doesn't pass as empty.
 say: start typing
 say: clear the box
 wait 500
+read
 expectvalue:
 say: stop typing

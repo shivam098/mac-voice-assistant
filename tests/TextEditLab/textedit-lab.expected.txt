@@ -1,7 +1,9 @@
 # What the TextEdit lab's output must have besides its PASS checks (scripts/self-test.sh --expect): TextEdit in front,
-# and the document after the voice typing and after both dictations ("Hello from the self test.", a line break and
-# "A second line.", then " A dictated sentence. Typed with keys."): the text's length in UTF-16 units and the first 12
-# hex digits of its SHA-256.
+# and the document after the voice typing, after both dictations and after "clear the box" ("Hello from the self
+# test.", a line break and "A second line.", then " A dictated sentence. Typed with keys.", then nothing): the text's
+# length in UTF-16 units and the first 12 hex digits of its SHA-256. The empty document's line also proves the text
+# area could be read.
    foreground: com.apple.TextEdit
    focused: AXTextArea len=40 hash=D6E3F4CE489F
    focused: AXTextArea len=78 hash=FC42F64C5F4B
+   focused: AXTextArea len=0 hash=E3B0C44298FC

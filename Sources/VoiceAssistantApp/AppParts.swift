@@ -46,8 +46,8 @@ public struct AppParts {
     public static var standard: AppParts { AppParts(desktop: makeDesktop, brain: makeBrain) }
 
     /// VoiceAssistantMac's `MacDesktop` (C#'s `WindowsDesktop`): it reads `insertMethod` before each typing ("Paste",
-    /// or "Type" for key events), finds the installed apps, and its log lines (outcomes, counts and timings, never
-    /// text) go to the app's log.
+    /// or "Type" for key events), finds the installed apps, and its log lines (outcomes, counts, timings and app names,
+    /// as Windows logs them; never text or window titles) go to the app's log.
     public static func makeDesktop(_ insertMethod: @escaping @Sendable () -> String) -> DesktopParts {
         let desktop = MacDesktop(insertMethod: insertMethod, log: { Log.info($0) })
         return DesktopParts(

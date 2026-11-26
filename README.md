@@ -76,6 +76,7 @@ desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into 
 while it runs (and give Terminal Accessibility):
 
 ```sh
+swift package update     # thumbfree-mac at the tip of its main, as CI uses it (Package.resolved isn't committed)
 swift build -c release
 tests/TextEditLab/run.sh .build/release/VoiceAssistant
 ```

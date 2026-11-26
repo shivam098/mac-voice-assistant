@@ -94,11 +94,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// window (Windows' ShowWindow event).
     public let showRequested = HostEvent<Void>()
 
-    /// Something to tell in a notification (Windows' tray balloons): a hotkey another app has, the dictation key that
-    /// can't be seen yet, the desktop's missing permission, ThumbFree running too, a restart that failed. The notices
-    /// still in force reach a handler added later too, so the UI shows them whenever it subscribes; each is withdrawn
-    /// once it no longer holds (the hotkey registered after a keyboard layout change, the permission given, ThumbFree
-    /// quit). A failed restart is told once.
+    /// Something to tell in a notification (Windows' tray balloons): a hotkey another app has or settings.json's chord
+    /// that can't be read, the dictation key that can't be seen yet, the desktop's missing permission, ThumbFree
+    /// running too, a restart that failed. The notices still in force reach a handler added later too, so the UI shows
+    /// them whenever it subscribes; each is withdrawn once it no longer holds (the hotkey registered after a keyboard
+    /// layout change, the permission given, ThumbFree quit). A failed restart is told once. Withdrawing isn't announced
+    /// to the handlers already listening, so a lasting banner should follow `thumbFreeChanged` or
+    /// `missingDesktopPermissions`, not `notice` alone.
     public let notice = NoticeEvent()
 
     /// ThumbFree started or quit while both use the same key: `thumbFreeRunsToo` changed, so the UI shows or clears its
@@ -302,12 +304,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         register(settings.macDictationLanguageHotkey, "switch dictation language") { host.toggleDictationLanguage() }
     }
 
-    private func register(_ chord: String, _ purpose: String, _ pressed: @escaping () -> Void) {
+    /// Registers one of the hotkeys, telling the UI when another app has it or settings.json's chord can't be read (a
+    /// Windows hotkey such as F24, say); both notices stay in force for a UI that subscribes later.
+    func register(_ chord: String, _ purpose: String, _ pressed: @escaping () -> Void) {
+        let topic = NoticeTopic.hotkey(purpose)
         do {
             let hotkey = try GlobalHotkey(chord, pressed: pressed)
             hotkeys.append(hotkey)
             let taken = "\(AppSettings.hotkeyLabel(chord)) (\(purpose)) is used by another app."
-            let topic = NoticeTopic.hotkey(purpose)
             if !hotkey.isRegistered {
                 tell(taken, topic: topic)
             }
@@ -323,7 +327,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 }
             }
         } catch {
-            tell(AssistantHost.message(error))
+            tell(AssistantHost.message(error), topic: topic)
         }
     }
 

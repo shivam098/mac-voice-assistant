@@ -274,8 +274,8 @@ public final class NoticeEvent: @unchecked Sendable {
         }
     }
 
-    /// Runs the handlers with `message`. With a `topic`, the notice stays in force for handlers added later, in place of
-    /// that topic's earlier one, until `withdraw(topic)`.
+    /// Runs the handlers with `message`. With a `topic`, the notice stays in force for handlers added later, in place
+    /// of that topic's earlier one, until `withdraw(topic)`.
     func send(_ message: String, topic: String? = nil) {
         let current = lock.withLock { () -> [(String) -> Void] in
             if let topic {
@@ -291,7 +291,8 @@ public final class NoticeEvent: @unchecked Sendable {
         }
     }
 
-    /// The topic's notice no longer holds: handlers added later don't get it.
+    /// The topic's notice no longer holds: handlers added later don't get it. The handlers already listening aren't
+    /// told.
     func withdraw(_ topic: String) {
         lock.withLock { standing.removeAll { $0.topic == topic } }
     }

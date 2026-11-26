@@ -9,6 +9,7 @@ the same script commands and output; the differences are at the end.
 ## Running it
 
 ```sh
+swift package update     # thumbfree-mac at the tip of its main, as CI uses it
 swift build -c release
 .build/release/VoiceAssistant --self-test <script> [<output>]
 ```
@@ -17,6 +18,10 @@ In the app, the executable is `Voice Assistant.app/Contents/MacOS/VoiceAssistant
 `<script>.out.txt` unless another file is given. The app reads settings.json as it does when it runs (the wake word,
 `insertMethod`, the apps it knows), but uses an idea board in memory, saves nothing it learns, plays no sounds and
 doesn't open the microphone. It acts on the app in front and types there, so don't use the Mac while it runs.
+
+It shows none of the app's notices (`AppController.notice`, Windows' tray balloons), which the app replays to a UI that
+subscribes late; withdrawing one isn't announced to handlers already listening, so a UI shouldn't base a lasting banner
+on `notice` alone but on the specific events (`thumbFreeChanged`, the desktop's missing permissions).
 
 The desktop needs Accessibility, which also lets it send keys. macOS asks it of whatever started the app: Terminal (or
 the runner on GitHub) when the executable is started directly, the app itself when it's opened with `open`. Without it,
@@ -102,7 +107,8 @@ A lab is a folder in `tests/` with a script, the lines its output must have, and
 
 **`tests/TextEditLab`**: "Hey Jarvis, open TextEdit" opens a new document in front; "start typing" types two phrases
 into it with "new line" between them; a dictation is pasted and another typed with keys, each after a space; `read` and
-`expectvalue` find exactly that text; "clear the box" empties the document.
+`expectvalue` find exactly that text; "clear the box" empties the document, which `read` checks too, so a text area
+that can't be read doesn't pass as empty (`expectvalue` alone compares what it couldn't read, nothing, to nothing).
 
 ```sh
 tests/TextEditLab/run.sh .build/release/VoiceAssistant [<results folder>]
@@ -115,7 +121,8 @@ default `$TMPDIR/voice-assistant-self-test/textedit`) gets `output.txt` and the 
 A new lab, such as the NavigationLab's scenarios N1–N9 (windows-voice-assistant `tests/NavigationLab`):
 
 1. `tests/<Name>Lab/<name>-lab.selftest.txt`: start with `stoponfail` and a check that the lab's window is in front
-   (`expecttitle:`), then the scenario, a check after each step.
+   (`expecttitle:`), then the scenario, a check after each step. Before an empty `expectvalue:`, `read`, with its
+   `len=0` line in the expected file: a box that can't be read reads as empty.
 2. `tests/<Name>Lab/<name>-lab.expected.txt` (optional): lines the output must have besides its checks, such as
    `   foreground: com.google.Chrome`.
 3. `tests/<Name>Lab/run.sh <app> [<results folder>]`: puts the lab's windows in front, runs

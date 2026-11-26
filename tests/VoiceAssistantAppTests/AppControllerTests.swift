@@ -82,6 +82,22 @@ final class AppControllerTests: XCTestCase {
         XCTAssertEqual(late.value, [hotkey, rightOption])
         XCTAssertEqual(notices.inForce, [hotkey, rightOption])
     }
+
+    /// A hotkey in settings.json that the Mac can't read (a Windows one such as F24) is told to a UI that subscribes
+    /// after launch too.
+    @MainActor
+    func testAHotkeyItCantReadIsToldToAUIThatListensLater() {
+        let folder = TempFolder()
+        defer { folder.remove() }
+        let controller = AppController(
+            paths: AppPaths(data: folder.path, logs: folder.file("logs")), parts: AppParts(desktop: nil, brain: nil),
+            options: LaunchOptions(["VoiceAssistant"]))
+        controller.register("Ctrl+Alt+F24", "pause/resume") {}
+
+        let told = Locked<[String]>([])
+        controller.notice.subscribe { message in told.update { $0.append(message) } }
+        XCTAssertEqual(told.value, ["Unknown key 'F24'."])
+    }
 }
 
 /// Key events from the test rather than a Quartz event tap.
