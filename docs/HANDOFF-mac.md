@@ -14,7 +14,7 @@ Open apps, dictate, navigate and send by voice, with an optional offline AI brai
 Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for Mac's (shivam098/thumbfree-mac), which
 this package uses at the tip of that repo's main. docs/design.md is the design and has the phase table.
 
-Merged (main was `2c2a6a9` when this was written):
+Merged (main was `55f0b5f` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -26,30 +26,33 @@ Merged (main was `2c2a6a9` when this was written):
   never outlives the app, and a bench that scores it against Windows.
 - **The desktop layer, part 1** (#9): apps, windows, keys, typing and focus through Accessibility. Also the core's
   fixes for the Mac (#10, #13).
+- **The assistant host** (#14): always listening for "Hey Jarvis", Fn dictation with live preview, Hindi + English, the
+  hotkeys (⌃⇧Space pause, ⌃⇧Z paste last, ⌃⇧H dictation language), start at login, and a `--self-test` runner.
+- **The real desktop in the app** (#20), and a **Self-test** workflow that drives TextEdit on GitHub's Mac through the
+  app itself (docs/self-test.md).
+- **The UI, parts 1 and 2** (#15, #22): the menu bar, the status pill, the reminder cards, and the window (Home with a
+  permissions card, Settings, and What you can say).
+- **Release preparation** (#21): the Release workflow, [docs/testing.md](testing.md) (the real-Mac checklist for the
+  app) and the v0.1.0 release notes.
+- **The UI wiring** (#24): the menu bar, the pill, the window and the reminder cards are connected to the host, so the
+  App workflow's .dmg is the whole app. The App workflow also opens the built app and checks that it starts.
 
 In review or being built on the Windows PC, through PRs (check `gh pr list`):
 
-- **#14, the assistant host:** always listening for "Hey Jarvis", Fn dictation with live preview, Hindi + English, the
-  hotkeys (⌃⇧Space pause, ⌃⇧Z paste last, ⌃⇧H dictation language), start at login, and a `--self-test` runner.
-- **#15, the UI, part 1:** the menu bar, the status pill and the reminder cards. Then the window (Home, Settings, Help
-  and the idea board) and the wiring that connects the host, the UI, the desktop and the brain.
-- **The desktop layer, parts 2 and 3:** navigation (clicking by name, number badges, browser tabs) and the
-  NavigationLab acceptance tests.
-- **Release preparation:** a release workflow, docs/testing.md (the full real-Mac checklist for the app) and the
-  v0.1.0 release notes.
+- **#25, the desktop layer, part 2:** navigation (clicking by name, number badges, browser tabs), tested for real in
+  Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
+- **#23 and #27:** a small polish PR for the window (VoiceOver names, and text boxes macOS doesn't alter), and the idea
+  board page.
+- **Then:** the desktop layer's part 3 (the NavigationLab acceptance tests N1–N9 through the self-test runner), and the
+  release PR (pin thumbfree-mac, then run the Release workflow).
 
-Unfinished work is saved on three branches. None of it has been built, tested or reviewed, so don't merge them as they
-are; continue them through PRs:
+The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
+gone.
 
-- `wip/desktop-2`: the desktop layer's navigation (scans and clicks, browser tabs, the number badges) with the
-  NavigationLab pages and their tests;
-- `wip/app-3`, on top of #14: the real desktop wired into the host, and a self-test workflow that drives TextEdit;
-- `wip/ui-2`, on top of #15: the window's Home, Help and Settings pages.
-
-**What that means on this Mac today:** the app on main is still a placeholder (a menu-bar item; the assistant isn't
-connected yet). So for now: set up the Mac, run every test, including the ones that need a real Mac (sections 3 and 5),
-and measure the AI brain on a real graphics chip. Once the host, the UI and the wiring have merged and v0.1.0 is
-released (or the App workflow's .dmg shows the whole app), install it and go through the app checklist in section 5.
+**What that means on this Mac today:** the App workflow's .dmg from main launches into the whole app; navigation by
+name and numbers comes with #25. So: set up the Mac, run every test, including the ones that need a real Mac (sections
+3 and 5), measure the AI brain on a real graphics chip, then install the latest .dmg from main (or v0.1.0 once it's
+released) and go through the app checklist in section 5.
 
 Before you start, see what has changed since this was written:
 
