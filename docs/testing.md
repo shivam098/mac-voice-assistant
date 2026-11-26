@@ -81,7 +81,8 @@ down.
 - [ ] **Click the menu bar icon.** Its menu opens: Open Voice Assistant, the status, pause or resume listening, the
   dictation language, Always show status pill, Start when I log in, Settings… and Quit Voice Assistant. The icon reads
   well on light and dark menu bars, and its dot follows the mode.
-- [ ] **Open Voice Assistant** (the menu's first item). Its window opens: Home, the Idea board, Settings and Help.
+- [ ] **Open Voice Assistant** (the menu's first item). Its window opens: Home, the Idea board, Settings and What you
+  can say.
 - [ ] **Use it for a while.** The pill shows each state: waiting for "Hey Jarvis", listening for a command, typing,
   dictating (a level meter and your words), transcribing, paused. Messages go after a few seconds.
 - [ ] **Click the pill's minimize button.** The pill hides until it's needed (it comes back for "Hey Jarvis", Fn and
