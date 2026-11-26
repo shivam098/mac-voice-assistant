@@ -416,6 +416,26 @@ final class IdeasPageTests: XCTestCase {
     }
 
     @MainActor
+    func testTheEditorGrowsWithItsText() throws {
+        let rig = PageRig()
+        defer { rig.folder.remove() }
+        let board = try rig.board()
+        let note = try board.add(.ideas, "a voice game for kids")
+        let model = rig.ideas(board)
+        model.beginEdit(note.id)
+        model.editText = "A board game about the monsoon that a whole family can play in one evening"
+        let shown = try XCTUnwrap(model.columns[0].notes.first)
+        let card = NoteCard(model: model, note: shown).frame(width: 240)
+        let hosted = Hosted(card, size: CGSize(width: 240, height: 160))
+        defer { hosted.close() }
+        let field = try XCTUnwrap(hosted.views(NoteEditorField.self).first)
+        PageRig.waitForMain { field.currentEditor() != nil }
+        hosted.view.layoutSubtreeIfNeeded()
+        let line = NoteEditor.height(of: "A", width: field.frame.width)
+        XCTAssertGreaterThan(field.frame.height, line * 2, "it wraps, as tall as its text, with the keyboard too")
+    }
+
+    @MainActor
     func testADraggedNoteIsCaughtOverTheBoardAndLandsWhereTheLineShows() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }

@@ -774,7 +774,7 @@ struct NoteCard: View {
             .help("Done")
             .padding(EdgeInsets(top: 2, leading: 0, bottom: 0, trailing: 8))
             if editing {
-                NoteEditor(model: model, text: model.editText)
+                NoteEditorBox(model: model)
             } else {
                 NoteText(note: note)
             }
@@ -834,5 +834,19 @@ struct NoteText: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .allowsHitTesting(false)
+    }
+}
+
+/// A note's editor in its box (Windows' editor is a text box over the note): white, rounded 4, its outline the accent
+/// colour as it has the keyboard, the text 3 points in from the top and 4 from the sides.
+struct NoteEditorBox: View {
+    @ObservedObject var model: BoardModel
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 4)
+        NoteEditor(model: model, text: model.editText)
+            .padding(EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 4))
+            .background(shape.fill(Color(Theme.card)))
+            .overlay(shape.strokeBorder(Color(Theme.accent), lineWidth: 1))
     }
 }

@@ -199,8 +199,8 @@ enum NoteGhost {
         return (image, view.bounds.insetBy(dx: -margin, dy: -margin))
     }
 
-    /// `card`, `size` points drawn at `scale` pixels a point, tilted about `grab` (from its bottom left, y up), with its
-    /// shadow, `margin` points round it.
+    /// `card`, `size` points drawn at `scale` pixels a point, tilted about `grab` (from its bottom left, y up),
+    /// with its shadow, `margin` points round it.
     static func image(of card: CGImage, size: CGSize, grab: CGPoint, scale: CGFloat) -> NSImage? {
         let canvas = CGSize(width: size.width + 2 * margin, height: size.height + 2 * margin)
         let width = Int((canvas.width * scale).rounded(.up))
@@ -329,17 +329,25 @@ final class DropCatcherView: NSView {
 }
 
 /// A note's editor (Windows' `BeginEdit`): a box with its text, which wraps, selected and ready to type over. Return
-/// saves, Esc doesn't, and leaving it for another box or note saves.
+/// saves, Esc doesn't, and leaving it for another box or note saves. The field is borderless; `NoteEditorBox` draws its
+/// box, as Settings' text areas have theirs.
 struct NoteEditor: NSViewRepresentable {
     let model: BoardModel
     /// The editor's text (`model.editText`), so the box grows as it's typed.
     let text: String
 
+    /// Its text's size.
+    static let font = NSFont.systemFont(ofSize: 14)
+
     func makeNSView(context: Context) -> NoteEditorField {
         let field = NoteEditorField(string: text)
-        field.font = NSFont.systemFont(ofSize: 14)
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
+        field.measured = text
+        field.font = Self.font
+        field.textColor = NSColor(Color(Theme.text))
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
         field.usesSingleLineMode = false
         field.cell?.wraps = true
         field.cell?.isScrollable = false
@@ -355,16 +363,35 @@ struct NoteEditor: NSViewRepresentable {
         if field.currentEditor() == nil && field.stringValue != text {
             field.stringValue = text
         }
+
+        field.measured = text
     }
 
-    /// As tall as its text needs at the width it's given.
+    /// As tall as its text needs at the width it's given (200 points when it's asked how wide it would like to be).
     func sizeThatFits(_ proposal: ProposedViewSize, nsView field: NoteEditorField, context: Context) -> CGSize? {
-        let width: CGFloat = proposal.width ?? 200
-        guard let cell = field.cell?.copy() as? NSCell else { return nil }
-        cell.stringValue = text
+        var width: CGFloat = 200
+        if let proposed = proposal.width, proposed.isFinite, proposed > 0 {
+            width = proposed
+        }
+
+        return CGSize(width: width, height: Self.height(of: text, width: width))
+    }
+
+    /// The height of the field holding `text` at `width`, measured with a cell of its own (the field's cell is the
+    /// field editor's while it has the keyboard).
+    static func height(of text: String, width: CGFloat) -> CGFloat {
+        let cell = NSTextFieldCell(textCell: text)
+        cell.font = font
+        cell.isEditable = true
+        cell.isBezeled = false
+        cell.isBordered = false
+        cell.wraps = true
+        cell.isScrollable = false
+        cell.lineBreakMode = .byWordWrapping
+        cell.usesSingleLineMode = false
         let bounds = NSRect(x: 0, y: 0, width: width, height: CGFloat.greatestFiniteMagnitude)
         let height: CGFloat = cell.cellSize(forBounds: bounds).height
-        return CGSize(width: width, height: height.rounded(.up))
+        return height.rounded(.up)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -406,10 +433,32 @@ struct NoteEditor: NSViewRepresentable {
     }
 }
 
-/// The editor's box, which takes the keyboard as soon as it's in the window (with its text selected, as a box that
-/// takes the keyboard selects it).
+/// The editor's field, which takes the keyboard as soon as it's in the window (with its text selected, as a box that
+/// takes the keyboard selects it), and is as tall as its text needs at its width.
 final class NoteEditorField: NSTextField {
     private var focused = false
+
+    /// The text it's measured with: the model's, which follows what's typed.
+    var measured = "" {
+        didSet {
+            if measured != oldValue {
+                invalidateIntrinsicContentSize()
+            }
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let width: CGFloat = bounds.width > 10 ? bounds.width : 200
+        return NSSize(width: NSView.noIntrinsicMetric, height: NoteEditor.height(of: measured, width: width))
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged {
+            invalidateIntrinsicContentSize()
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
