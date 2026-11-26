@@ -36,8 +36,11 @@ enum NetJSON {
 
     private static func utf16(_ bytes: ArraySlice<UInt8>, bigEndian: Bool) -> String {
         let data = Array(bytes)
-        let units = stride(from: 0, to: data.count - 1, by: 2).map { i -> UInt16 in
-            bigEndian ? UInt16(data[i]) << 8 | UInt16(data[i + 1]) : UInt16(data[i + 1]) << 8 | UInt16(data[i])
+        var units: [UInt16] = []
+        for i in stride(from: 0, to: data.count - 1, by: 2) {
+            let first = UInt16(data[i])
+            let second = UInt16(data[i + 1])
+            units.append(bigEndian ? first << 8 | second : second << 8 | first)
         }
 
         return String(decoding: units, as: UTF16.self) + (data.count % 2 == 1 ? "\u{FFFD}" : "")
