@@ -1,7 +1,7 @@
 name: App
 
 # Voice Assistant.app, universal and signed ad hoc, in a .dmg to test on a Mac (scripts/make-app.sh). The .dmg is this
-# run's artifact.
+# run's artifact. The Release workflow (release.yml) builds a release's .dmg with it too.
 on:
   push:
     branches: [main]
@@ -19,9 +19,18 @@ on:
       - "Package.swift"
       - ".github/workflows/app.yml"
   workflow_dispatch:
+  # The Release workflow (release.yml) builds with it, at the version it releases.
+  workflow_call:
+    inputs:
+      version:
+        description: The version, such as 0.1.0 (empty for scripts/make-app.sh's, the latest v* tag's, else 0.1.0)
+        type: string
+        default: ""
 
+# When the Release workflow calls it, github.workflow is "Release", so a release's build and the App runs of the same
+# branch never cancel each other.
 concurrency:
-  group: app-${{ github.ref }}
+  group: app-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -44,9 +53,11 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # thumbfree-mac at the tip of its main, as the Mac workflow builds it.
+      # thumbfree-mac as Package.swift says: its main, as the Mac workflow builds it, until a release pins a commit.
       - name: Build the app and the disk image
-        run: ./scripts/make-app.sh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: ./scripts/make-app.sh "$VERSION"
 
       - uses: actions/upload-artifact@v7
         with:
