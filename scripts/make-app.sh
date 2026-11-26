@@ -123,15 +123,12 @@ cat >"$app/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$app/Contents/Info.plist"
 
-# The icon, from Voice Assistant's 512-point logo (windows-voice-assistant assets/logo.png): 16 to 512 points, each at
-# 1x and 2x, except 512 at 2x, which would only be the logo enlarged.
+# The 1024-pixel Mac beacon (scripts/render-logo.swift), at every Finder and Retina size.
 iconset="$work/AppIcon.iconset"
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
   sips -z "$size" "$size" assets/logo.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
-  if ((size * 2 <= 512)); then
-    sips -z $((size * 2)) $((size * 2)) assets/logo.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-  fi
+  sips -z $((size * 2)) $((size * 2)) assets/logo.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil --convert icns --output "$app/Contents/Resources/AppIcon.icns" "$iconset"
 

@@ -88,7 +88,7 @@ public struct MenuActions {
     }
 }
 
-/// Voice Assistant's menu bar item (Windows' tray icon, `TrayIcon`): the logo's microphone with a dot for the mode, the
+/// Voice Assistant's menu bar item (Windows' tray icon, `TrayIcon`): the Jarvis beacon with a dot for the mode, the
 /// mode in its tooltip, and the menu (`StatusMenu`), which opens on a click as menu bar items' menus do. Its balloon
 /// says short things by it.
 @MainActor
