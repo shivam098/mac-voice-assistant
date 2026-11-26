@@ -65,6 +65,22 @@ final class MenuBarTests: XCTestCase {
         XCTAssertEqual(MenuBar.dot(nil), Colour(0x9AA0A6), "grey while starting, as Windows' first icon")
     }
 
+    /// While ThumbFree runs with the same key, its warning shows under the status line as a line of text, as
+    /// ThumbFree's menu warns about Voice Assistant; it goes when ThumbFree quits.
+    @MainActor
+    func testAWarningShowsUnderTheStatusLineWhileItHolds() {
+        let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: MenuRecorder().actions)
+        XCTAssertTrue(menu.noteLine.isHidden)
+
+        menu.showNote(AppController.thumbFreeNote)
+        XCTAssertEqual(Array(Self.shown(menu)[3...5]), ["Starting…", AppController.thumbFreeNote, "Start listening"])
+        XCTAssertFalse(menu.noteLine.isEnabled)
+
+        menu.showNote(nil)
+        XCTAssertTrue(menu.noteLine.isHidden)
+        XCTAssertEqual(Array(Self.shown(menu)[3...4]), ["Starting…", "Start listening"])
+    }
+
     @MainActor
     func testEachItemDoesWhatItSaysAndTheTicksFollowTheApp() {
         let recorder = MenuRecorder()

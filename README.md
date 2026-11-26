@@ -40,7 +40,8 @@ on Apple silicon and Intel Macs; the AI brain needs Apple silicon and macOS 13.3
    download `VoiceAssistant-<version>.dmg` and `SHA256SUMS`, and check the download: `shasum -a 256 -c SHA256SUMS`.
 2. Open the `.dmg` and drag Voice Assistant to Applications. Test builds are signed ad hoc, not by Apple, so the first
    time, open it, then choose System Settings › Privacy & Security › **Open Anyway**.
-3. Give it the microphone and Accessibility. The first run downloads the speech models (about 265 MB).
+3. Give it the microphone and Accessibility: the window opens at Home, which lists them, each with a button that asks
+   macOS. The first run downloads the speech models (about 265 MB).
 
 [docs/testing.md](docs/testing.md) has each step, the checklist to test it with, and how to report a problem.
 
@@ -65,11 +66,14 @@ never replaced.
 `VoiceAssistant-<version>.dmg` in `dist/`. The App workflow runs it for every pull request and every change to `main`
 that touches the app, and keeps the `.dmg` as the run's artifact (`VoiceAssistant-dmg`). To try one, open the `.dmg`,
 drag the app to Applications, open it, and the first time choose System Settings › Privacy & Security › Open Anyway.
-Its window and pill aren't there yet (the menu bar icon only quits), but the assistant runs: the first time it
-downloads the speech model (about 264 MB) and asks for the microphone, and it needs Accessibility (System Settings ›
-Privacy & Security › Accessibility) to open apps and type. Then "Hey Jarvis" and tap-to-dictate with Fn work, and what
-happens is in the log (`~/Library/Logs/VoiceAssistant`). The settings are in
-`~/Library/Application Support/VoiceAssistant/settings.json`.
+It opens at Home, with its icon in the menu bar and the status pill at the bottom of the screen. Home lists what macOS
+hasn't allowed yet, each with a button that asks for it: the microphone, and Accessibility (System Settings › Privacy &
+Security › Accessibility) to open apps and type. The first time, it downloads the speech model (about 264 MB). Then
+"Hey Jarvis" and tap-to-dictate with Fn work, reminders pop up as cards, and what happens is in the log
+(`~/Library/Logs/VoiceAssistant`). The idea board's page and the number badges ("show numbers") aren't there yet. The
+settings are in `~/Library/Application Support/VoiceAssistant/settings.json`. The App workflow also opens the app on
+the runner and checks that it starts into its UI (`scripts/launch-check.sh`), keeping its log and a screenshot as the
+run's artifact (`launch-check`).
 
 The self-test ([docs/self-test.md](docs/self-test.md)) runs scripted transcripts through the real controller and
 desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into it and quits it, so leave the Mac alone

@@ -144,11 +144,11 @@ public final class MenuBar {
     }
 }
 
-/// The menu (Windows' tray menu, `TrayIcon`): open the window or the idea board; the status and pausing or starting
-/// listening; pasting the last dictation; the dictation language; copying the text that wasn't typed, while there's
-/// some; what you can say, Settings, the pill and starting at login; and Quit. The hotkeys show as macOS shows
-/// shortcuts; ⌘, and ⌘Q are the Mac's for Settings and Quit. Built apart from the menu bar item, so tests read it and
-/// click it.
+/// The menu (Windows' tray menu, `TrayIcon`): open the window or the idea board; the status (with a warning under it
+/// while ThumbFree runs too) and pausing or starting listening; pasting the last dictation; the dictation language;
+/// copying the text that wasn't typed, while there's some; what you can say, Settings, the pill and starting at login;
+/// and Quit. The hotkeys show as macOS shows shortcuts; ⌘, and ⌘Q are the Mac's for Settings and Quit. Built apart
+/// from the menu bar item, so tests read it and click it.
 @MainActor
 public final class StatusMenu: NSObject, NSMenuDelegate {
     public let menu = NSMenu()
@@ -156,6 +156,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     let openApp = NSMenuItem()
     let ideaBoard = NSMenuItem()
     let statusLine = NSMenuItem()
+    let noteLine = NSMenuItem()
     let toggle = NSMenuItem()
     let pasteLast = NSMenuItem()
     let language = NSMenuItem()
@@ -184,6 +185,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
             attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
         set(ideaBoard, "Idea board") { [weak self] in self?.actions.open(.ideas) }
         set(statusLine, "Starting…")
+        set(noteLine, "")
+        noteLine.isHidden = true
         set(toggle, "Start listening") { [weak self] in self?.actions.toggleListening() }
         toggleSuffix = Self.show(hotkeys.pause, on: toggle)
         toggle.title += toggleSuffix
@@ -227,7 +230,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         quit.keyEquivalent = "q"
         quit.keyEquivalentModifierMask = [.command]
         for item in [
-            openApp, ideaBoard, NSMenuItem.separator(), statusLine, toggle, pasteLast, language, copyUntyped,
+            openApp, ideaBoard, NSMenuItem.separator(), statusLine, noteLine, toggle, pasteLast, language, copyUntyped,
             NSMenuItem.separator(), whatYouCanSay, settings, showPill, startAtLogin, NSMenuItem.separator(), quit,
         ] {
             menu.addItem(item)
@@ -241,6 +244,13 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         statusLine.title = Self.label(mode)
         let action = mode == .paused ? "Start listening" : "Pause listening"
         toggle.title = action + toggleSuffix
+    }
+
+    /// A warning under the status line while it holds, as ThumbFree's menu shows that Jarvis runs too: that ThumbFree
+    /// runs too, with the same key. Nil hides it.
+    public func showNote(_ note: String?) {
+        noteLine.title = note ?? ""
+        noteLine.isHidden = note == nil
     }
 
     /// Brings the menu up to date before it opens (Windows' `menu.Opening`): the ticks, and the text that wasn't typed.

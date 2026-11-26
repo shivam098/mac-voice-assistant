@@ -36,16 +36,13 @@ struct LaunchOptions: Equatable {
     }
 }
 
-/// Voice Assistant, the app (windows-voice-assistant App.xaml.cs, without its windows): one copy at a time, the log,
-/// the settings, the idea board, the assistant host, the pause, paste-last and language hotkeys, the dictation key
-/// (Fn or Right Option, and Esc), the warning while ThumbFree runs, restarting and quitting; and the self-test. The
-/// menu bar, the pill, the window and the reminders are the app's UI, which comes next: until then the menu says the
-/// app is in development. `Sources/VoiceAssistant/main.swift` only calls `main`.
+/// Voice Assistant, the app (windows-voice-assistant App.xaml.cs): one copy at a time, the log, the settings, the idea
+/// board, the assistant host and its UI (`AppUI`: the menu bar item, the status pill, the window and the reminder
+/// cards), the pause, paste-last and language hotkeys, the dictation key (Fn or Right Option, and Esc), the warning
+/// while ThumbFree runs, restarting and quitting; and the self-test. `Sources/VoiceAssistant/main.swift` only calls
+/// `main`.
 @MainActor
 public final class AppController: NSObject, NSApplicationDelegate {
-    /// What the menu says until the UI lands.
-    nonisolated static let inDevelopment = "Voice Assistant for Mac — in development"
-
     nonisolated static let restartedArgument = "--restarted"
 
     /// What the warning says while ThumbFree runs with the same key.
@@ -99,13 +96,17 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// running too, a restart that failed. The notices still in force reach a handler added later too, so the UI shows
     /// them whenever it subscribes; each is withdrawn once it no longer holds (the hotkey registered after a keyboard
     /// layout change, the permission given, ThumbFree quit). A failed restart is told once. Withdrawing isn't announced
-    /// to the handlers already listening, so a lasting banner should follow `thumbFreeChanged` or
-    /// `missingDesktopPermissions`, not `notice` alone.
+    /// to the handlers already listening, so a lasting warning follows `thumbFreeChanged` or `permissionsChanged`, not
+    /// `notice` alone: the UI shows notices as balloons (`AppUI`).
     public let notice = NoticeEvent()
 
     /// ThumbFree started or quit while both use the same key: `thumbFreeRunsToo` changed, so the UI shows or clears its
     /// warning.
     public let thumbFreeChanged = HostEvent<Bool>()
+
+    /// What macOS allows (the microphone, Accessibility, Input Monitoring) changed, as read every 3 s: Home's
+    /// "Permissions needed" follows.
+    public let permissionsChanged = HostEvent<Void>()
 
     /// The assistant; nil until it starts, and in a build without a desktop.
     public private(set) var host: AssistantHost?
@@ -135,11 +136,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private let insertMethod = Locked("Paste")
     private let reader = FocusedField.Reader()
     private var desktop: DesktopParts?
-    private var statusItem: NSStatusItem?
+    private var ui: AppUI?
     private var hotkeys: [GlobalHotkey] = []
     private var keys: HotkeyTap?
     private var tapAllowed: HotkeyTap.Mode?
     private var desktopAllowed = true
+    private var permissionsSeen: [Permissions.Status] = []
     private var permissionTimer: Timer?
     private var otherApp: OtherApp?
     private var subscriptions: [HostSubscription] = []
@@ -199,12 +201,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
 
         self.board = board
-        statusItem = Self.makeStatusItem()
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(showRequestedByAnotherCopy(_:)), name: SingleInstance.showNotification,
             object: nil, suspensionBehavior: .deliverImmediately)
         guard let desktop = parts.desktopParts(insertMethod: insertMethod) else {
-            Log.info("no desktop in this build: the assistant doesn't start")
+            Self.failedToStart(NoDesktop(), logs: paths.logs)
             return
         }
 
@@ -218,6 +219,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         subscriptions.append(host.captureStopped.subscribe { [weak self] id in
             MainActor.assumeIsolated { self?.captureStopped(id) }
         })
+
+        // The UI listens before anything is told, so the notices of what follows reach it as they're sent.
+        let ui = makeUI(host, settings, board)
+        self.ui = ui
         registerHotkeys(settings, host)
         if settings.pushToTalk {
             installDictationKeys(settings)
@@ -227,6 +232,22 @@ public final class AppController: NSObject, NSApplicationDelegate {
         checkDesktopPermissions()
         watchPermissions()
         host.start()
+        ui.showAtLaunch(background: launchedInBackground)
+    }
+
+    /// The menu bar item, the pill, the window and the reminder cards, wired to the host and to this app's events.
+    private func makeUI(_ host: AssistantHost, _ settings: AppSettings, _ board: BoardStore) -> AppUI {
+        let events = AppUI.AppEvents(
+            notice: notice, thumbFreeChanged: thumbFreeChanged, permissionsChanged: permissionsChanged,
+            showRequested: showRequested, thumbFreeRunsToo: thumbFreeRunsToo)
+        let restart: @MainActor (Bool) -> Void = { [weak self] windowVisible in
+            self?.restart(windowVisible: windowVisible)
+        }
+
+        let parts = AppUI.Parts.standard(settings: settings, paths: paths, board: board, host: host, restart: restart)
+        let ui = AppUI(host: host, app: events, settings: settings, paths: paths, board: board, parts: parts)
+        Log.info("ui: menu bar item, pill and window ready")
+        return ui
     }
 
     /// Opening Voice Assistant again while it runs (Finder, Spotlight).
@@ -255,6 +276,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     public func applicationWillTerminate(_ notification: Notification) {
         stopInput()
+        ui?.close()
         instance.release()
     }
 
@@ -400,9 +422,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Every 3 s: the tap is made again once a permission is given (or taken back) in System Settings, and the
-    /// desktop's warning is withdrawn once it's allowed.
+    /// Every 3 s: the tap is made again once a permission is given (or taken back) in System Settings, the desktop's
+    /// warning is withdrawn once it's allowed, and the UI hears what changed.
     private func watchPermissions() {
+        notePermissionChanges()
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.permissionsMayHaveChanged() }
         }
@@ -410,6 +433,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func permissionsMayHaveChanged() {
         checkDesktopPermissions()
+        notePermissionChanges()
         guard let keys, !recording else { return }
         let allowed = allowedTap()
         if allowed != tapAllowed {
@@ -432,6 +456,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
             "Voice Assistant can't see the \(key) key yet: allow it in System Settings › Privacy & Security › "
                 + "Accessibility.",
             topic: NoticeTopic.dictationKey)
+    }
+
+    /// What macOS allows changed since the last look (`permissionsChanged`): the first look only takes note.
+    private func notePermissionChanges() {
+        let permissions = Permissions()
+        let now = Permissions.Kind.allCases.map { permissions.status($0) }
+        guard now != permissionsSeen else { return }
+        let first = permissionsSeen.isEmpty
+        permissionsSeen = now
+        if !first {
+            Log.info("permissions changed")
+            permissionsChanged.send(())
+        }
     }
 
     /// The tap the permissions allow: active with the right to post events, else listen-only with Input Monitoring.
@@ -548,35 +585,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: The menu until the UI lands
-
-    private static func makeStatusItem() -> NSStatusItem {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Voice Assistant") {
-            image.isTemplate = true
-            item.button?.image = image
-        } else {
-            item.button?.title = "VA"
-        }
-
-        item.menu = menu()
-        return item
-    }
-
-    /// The status item's menu: what the app is, and Quit.
-    static func menu() -> NSMenu {
-        let menu = NSMenu()
-        let status = NSMenuItem(title: inDevelopment, action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-        menu.addItem(.separator())
-        let quit = NSMenuItem(
-            title: "Quit Voice Assistant", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(quit)
-        return menu
-    }
-
-    /// Something failed before the menu existed: with no menu there's no way to quit it, so it says so and quits.
+    /// Something failed before the UI existed: with no menu there's no way to quit it, so it says so and quits.
     private static func failedToStart(_ error: Error, logs: String) {
         Log.error("start failed: \(Log.kind(of: error))")
         if #available(macOS 14, *) {
@@ -590,6 +599,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         alert.informativeText = "\(error.localizedDescription)\n\nIts log has the details: \(logs)"
         alert.runModal()
         exit(1)
+    }
+
+    /// A build without a desktop (`AppParts.desktop` nil) has no assistant to start, and so no UI.
+    struct NoDesktop: LocalizedError {
+        var errorDescription: String? { "This build of Voice Assistant can't act on the Mac (it has no desktop)." }
     }
 }
 

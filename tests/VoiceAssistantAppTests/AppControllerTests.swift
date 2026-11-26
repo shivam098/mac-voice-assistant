@@ -3,22 +3,9 @@ import ThumbFreeMac
 import XCTest
 @testable import VoiceAssistantApp
 
-/// The app's startup (windows-voice-assistant App.xaml.cs): its command line, the menu until the UI lands, and the Esc
-/// that stops the AI brain.
+/// The app's startup (windows-voice-assistant App.xaml.cs): its command line, its notices, and the Esc that stops the
+/// AI brain. Its UI's wiring is in AppUITests.
 final class AppControllerTests: XCTestCase {
-    @MainActor
-    func testTheMenuSaysTheAppIsInDevelopmentAndQuits() throws {
-        let items = AppController.menu().items
-
-        XCTAssertEqual(items.count, 3)
-        XCTAssertEqual(items[0].title, "Voice Assistant for Mac — in development")
-        XCTAssertFalse(items[0].isEnabled)
-        XCTAssertTrue(items[1].isSeparatorItem)
-        XCTAssertEqual(items[2].title, "Quit Voice Assistant")
-        XCTAssertEqual(items[2].keyEquivalent, "q")
-        XCTAssertEqual(items[2].action, #selector(NSApplication.terminate(_:)))
-    }
-
     func testTheCommandLineIsReadAsWindowsReadsIt() {
         XCTAssertEqual(
             LaunchOptions(["VoiceAssistant", "--self-test", "lab.txt"]).selfTest,
