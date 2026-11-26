@@ -1,5 +1,6 @@
 import Foundation
 import ThumbFreeCore
+import ThumbFreeSpeech
 import VoiceAssistantCore
 import VoiceAssistantMac
 import XCTest
@@ -22,6 +23,28 @@ final class AssistantHostTests: XCTestCase {
             rig.speech.wakeOptions,
             WhisperOptions(threads: 2, audioContextSize: 256, maxTokens: 8, temperatureFallback: false))
         await rig.close()
+    }
+
+    /// ThumbFreeSpeech runs the standby check with exactly Windows' options, on the loaded small.en rather than a
+    /// second copy of it (Whisper.net's `WithOptions`).
+    func testTheStandbyCheckSharesTheLoadedModelWithWindowsOptions() throws {
+        let loaded = Locked<[FakeRecognizer]>([])
+        let speech = WhisperSpeech { _, options in
+            let recognizer = FakeRecognizer(options)
+            loaded.update { $0.append(recognizer) }
+            return recognizer
+        }
+
+        let model = try speech.loadModel(
+            at: "/models/ggml-small.en-q8_0.bin", options: WhisperOptions(threads: 4, audioContextSize: 768))
+        _ = try speech.variant(of: model, options: AssistantHost.wakeCheckOptions)
+
+        XCTAssertEqual(loaded.value.count, 1)
+        let english = try XCTUnwrap(loaded.value.first)
+        XCTAssertEqual(english.options, RecognizerOptions(threads: 4, audioContextSize: 768))
+        let standby = RecognizerOptions(
+            threads: 2, audioContextSize: 256, prompt: nil, maxTokens: 8, temperatureFallback: false)
+        XCTAssertEqual(english.shared.map(\.options), [standby])
     }
 
     func testTheFirstRunDownloadsTheModelsWithTheProgressInThePill() async throws {

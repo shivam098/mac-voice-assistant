@@ -200,20 +200,31 @@ public protocol SpeechEngine: AnyObject, Sendable {
 /// no context from earlier calls, one segment, and the probabilities; Silero with a 0.5 threshold, 150 ms of speech at
 /// least, 250 ms pauses and no padding.
 public final class WhisperSpeech: SpeechEngine, @unchecked Sendable {
-    public init() {}
+    /// Loads a Whisper model with options: ThumbFreeSpeech's `WhisperRecognizer`, a fake in tests.
+    private let load: @Sendable (_ path: String, _ options: RecognizerOptions) throws -> WhisperRecognizing
 
-    public func loadModel(at path: String, options: WhisperOptions) throws -> SpeechModel {
-        let recognizer = try WhisperRecognizer(
-            modelPath: path,
-            options: RecognizerOptions(
-                threads: options.threads, audioContextSize: options.audioContextSize, prompt: options.prompt))
-        return WhisperModel(recognizer)
+    public convenience init() {
+        self.init { path, options in try WhisperRecognizer(modelPath: path, options: options) }
     }
 
-    /// The model itself: ThumbFreeSpeech can't yet run a loaded model with a second set of options, cap the tokens, or
-    /// turn off temperature fallback, so the standby check runs with the model's own options rather than load a second
-    /// copy of it.
-    public func variant(of model: SpeechModel, options: WhisperOptions) throws -> SpeechModel { model }
+    init(load: @escaping @Sendable (_ path: String, _ options: RecognizerOptions) throws -> WhisperRecognizing) {
+        self.load = load
+    }
+
+    public func loadModel(at path: String, options: WhisperOptions) throws -> SpeechModel {
+        WhisperModel(try load(path, Self.recognizerOptions(options)))
+    }
+
+    /// The same loaded model with `options`, without loading it again (Whisper.net's `WithOptions`, ThumbFreeSpeech's
+    /// `withOptions`): the standby check runs small.en with its own options and decoding state, sharing the model's
+    /// weights, which are freed once both have closed.
+    public func variant(of model: SpeechModel, options: WhisperOptions) throws -> SpeechModel {
+        guard let whisper = model as? WhisperModel else {
+            throw SpeechError.invalidData("Only a model this engine loaded can run with other options.")
+        }
+
+        return WhisperModel(try whisper.recognizer.sharingModel(Self.recognizerOptions(options)))
+    }
 
     public func loadDetector(at path: String) throws -> SpeechDetecting {
         SileroDetector(try SpeechDetector(modelPath: path))
@@ -222,20 +233,44 @@ public final class WhisperSpeech: SpeechEngine, @unchecked Sendable {
     public func warmUp() {
         ThumbFreeSpeech.warmUp()
     }
+
+    /// ThumbFreeSpeech's options for `options`, every one of them (C#'s `RecognizerOptions`).
+    static func recognizerOptions(_ options: WhisperOptions) -> RecognizerOptions {
+        RecognizerOptions(
+            threads: options.threads, audioContextSize: options.audioContextSize, prompt: options.prompt,
+            maxTokens: options.maxTokens, temperatureFallback: options.temperatureFallback)
+    }
+}
+
+/// What `WhisperSpeech` uses of ThumbFreeSpeech's `WhisperRecognizer`, so the tests can see what it's asked.
+protocol WhisperRecognizing: AnyObject, Sendable {
+    /// The text of 16 kHz mono audio, its probability and how long it took.
+    func transcription(_ samples: [Float]) throws -> Transcription
+
+    /// Another recognizer of the same loaded model, with `options` (`WhisperRecognizer.withOptions`).
+    func sharingModel(_ options: RecognizerOptions) throws -> WhisperRecognizing
+
+    func close()
+}
+
+extension WhisperRecognizer: WhisperRecognizing {
+    func transcription(_ samples: [Float]) throws -> Transcription {
+        let result = try transcribeResult(samples)
+        return Transcription(text: result.text, probability: result.probability, elapsed: result.elapsed)
+    }
+
+    func sharingModel(_ options: RecognizerOptions) throws -> WhisperRecognizing { try withOptions(options) }
 }
 
 /// ThumbFreeSpeech's Whisper recognizer as a `SpeechModel`.
 final class WhisperModel: SpeechModel, @unchecked Sendable {
-    private let recognizer: WhisperRecognizer
+    let recognizer: WhisperRecognizing
 
-    init(_ recognizer: WhisperRecognizer) {
+    init(_ recognizer: WhisperRecognizing) {
         self.recognizer = recognizer
     }
 
-    func transcribe(_ samples: [Float]) throws -> Transcription {
-        let result = try recognizer.transcribeResult(samples)
-        return Transcription(text: result.text, probability: result.probability, elapsed: result.elapsed)
-    }
+    func transcribe(_ samples: [Float]) throws -> Transcription { try recognizer.transcription(samples) }
 
     func close() {
         recognizer.close()

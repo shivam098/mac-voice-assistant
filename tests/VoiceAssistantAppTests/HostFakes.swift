@@ -186,6 +186,32 @@ final class FakeDetector: SpeechDetecting, @unchecked Sendable {
     func close() {}
 }
 
+/// ThumbFreeSpeech's Whisper recognizer as `WhisperSpeech` uses it: its options, and the recognizers made to share its
+/// model.
+final class FakeRecognizer: WhisperRecognizing, @unchecked Sendable {
+    let options: RecognizerOptions
+
+    private let lock = NSLock()
+    private var sharing: [FakeRecognizer] = []
+
+    init(_ options: RecognizerOptions) {
+        self.options = options
+    }
+
+    /// The recognizers `sharingModel` made, in order.
+    var shared: [FakeRecognizer] { lock.withLock { sharing } }
+
+    func transcription(_ samples: [Float]) throws -> Transcription { Transcription(text: "") }
+
+    func sharingModel(_ options: RecognizerOptions) throws -> WhisperRecognizing {
+        let other = FakeRecognizer(options)
+        lock.withLock { sharing.append(other) }
+        return other
+    }
+
+    func close() {}
+}
+
 /// whisper.cpp in memory: a model for each kind, by file name.
 final class FakeSpeech: SpeechEngine, @unchecked Sendable {
     let english = FakeModel("english")

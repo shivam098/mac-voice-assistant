@@ -56,6 +56,11 @@ public final class AssistantHost: @unchecked Sendable {
     static let wakeCheckMaxTokens = 8
     static let wakeCheckSeconds = 3
 
+    /// The standby check's options: Windows' (no prompt, and one pass without temperature fallback).
+    static let wakeCheckOptions = WhisperOptions(
+        threads: wakeCheckThreads, audioContextSize: wakeCheckAudioContext, maxTokens: wakeCheckMaxTokens,
+        temperatureFallback: false)
+
     // MARK: Events (C#'s events), raised through `post`
 
     /// A status line, from the controller or the host.
@@ -353,7 +358,7 @@ public final class AssistantHost: @unchecked Sendable {
         await parts.microphone.stop()
         sounds.close()
         if drained {
-            // The standby check shares the English model: freed first.
+            // The standby check shares the English model's weights, which are freed once both have closed.
             wakeModel.value?.close()
             englishModel.value?.close()
             hinglishModel.value?.close()
@@ -527,11 +532,7 @@ public final class AssistantHost: @unchecked Sendable {
             _ = try await transcribe(model, Self.silence)
 
             // The standby pre-check: the same model on the first seconds of each phrase, cut short.
-            let check = try speech.variant(
-                of: model,
-                options: WhisperOptions(
-                    threads: Self.wakeCheckThreads, audioContextSize: Self.wakeCheckAudioContext,
-                    maxTokens: Self.wakeCheckMaxTokens, temperatureFallback: false))
+            let check = try speech.variant(of: model, options: Self.wakeCheckOptions)
             wakeModel.value = check
             _ = try await transcribe(check, Self.silence)
             if let vadPath = parts.models.find(settings.vadModelFile) {
