@@ -3,11 +3,12 @@ import ApplicationServices
 import CryptoKit
 import Foundation
 import ThumbFreeCore
+import ThumbFreeMac
 import VoiceAssistantBoard
 import VoiceAssistantCore
 
 /// What the self-test reads of the Mac besides the desktop: the focused element's kind and text, which it only ever
-/// measures and hashes; the clipboard's fingerprint; and the insertion method it switches.
+/// measures and hashes; the clipboard's fingerprint; the insertion method it switches; and the permissions it needs.
 public struct SelfTestPlatform: Sendable {
     /// The focused element's role ("AXTextArea") and text; "(timeout)" or "(error …)" without text when it can't be
     /// read.
@@ -19,32 +20,42 @@ public struct SelfTestPlatform: Sendable {
     /// Switches the desktop's insertion method ("Paste" or "Type").
     public var setInsertMethod: @Sendable (String) -> Void
 
+    /// The permissions the desktop needs that this process hasn't got ("accessibility", "postEvents"); none to run.
+    public var missingPermissions: @Sendable () -> [String]
+
     public init(
         focusedText: @escaping @Sendable () -> (kind: String, text: String),
         clipboardFingerprint: @escaping @Sendable () -> String,
-        setInsertMethod: @escaping @Sendable (String) -> Void
+        setInsertMethod: @escaping @Sendable (String) -> Void,
+        missingPermissions: @escaping @Sendable () -> [String] = { [] }
     ) {
         self.focusedText = focusedText
         self.clipboardFingerprint = clipboardFingerprint
         self.setInsertMethod = setInsertMethod
+        self.missingPermissions = missingPermissions
     }
 
-    /// This Mac: the Accessibility API, the general pasteboard, and the insertion method the desktop reads.
-    static func mac(_ insertMethod: Locked<String>) -> SelfTestPlatform {
-        SelfTestPlatform(
+    /// This Mac: the Accessibility API, the general pasteboard, the insertion method the desktop reads, and the
+    /// permissions the desktop is missing (as macOS counts them, those of the terminal or runner that started the app,
+    /// when it's started directly).
+    static func mac(_ insertMethod: Locked<String>, desktop: DesktopParts) -> SelfTestPlatform {
+        let missing = desktop.missingPermissions
+        return SelfTestPlatform(
             focusedText: { FocusedText.read() },
             clipboardFingerprint: {
                 Thread.isMainThread
                     ? SelfTest.pasteboardFingerprint()
                     : DispatchQueue.main.sync(execute: SelfTest.pasteboardFingerprint)
             },
-            setInsertMethod: { insertMethod.value = $0 })
+            setInsertMethod: { insertMethod.value = $0 },
+            missingPermissions: { missing?().map(\.rawValue) ?? [] })
     }
 }
 
 /// Runs a script of transcripts through the real controller and desktop, without the microphone or the models, so
 /// desktop flows can be checked end to end (windows-voice-assistant `SelfTest`, which its NavigationLab and EditingLab
-/// acceptance tests run): `VoiceAssistant --self-test <script> [<output>]`. Script lines:
+/// acceptance tests run): `VoiceAssistant --self-test <script> [<output>]`. docs/self-test.md has the whole story: the
+/// labs, `scripts/self-test.sh` and the Self-test workflow. Script lines:
 ///
 ///     listen                 start listening (standby, or command mode without the wake word)
 ///     say: <transcript>      as if Whisper heard it (confidence 0.9)
@@ -64,9 +75,13 @@ public struct SelfTestPlatform: Sendable {
 ///     clipboard              record a fingerprint of the clipboard (formats, hash, length), not its text
 ///     # comment
 ///
-/// The output never holds user text, window titles or clipboard contents. Windows' `typing <chunk> <delay>` tunes its
-/// own key typing; the Mac reads it and does nothing. The pill and the number badges aren't shown until the app's UI
-/// lands.
+/// The output has a line "> <line>" for each script line, then what came of it, indented by three spaces: status
+/// lines ("[Command] Success: Typed."), "PASS: …" and "FAIL: …", and what `fg`, `read` and `clipboard` record. A line
+/// starting "!!" says the run stopped: a failed check after `stoponfail`, an error, or missing permissions (then
+/// nothing runs). It's written as the run goes, so one that hangs leaves what it did. It never holds user text, window
+/// titles or clipboard contents: text in “quotes” in status lines is left out. Windows' `typing <chunk> <delay>` tunes
+/// its own key typing; the Mac reads it and does nothing. The pill and the number badges aren't shown until the app's
+/// UI lands.
 public enum SelfTest {
     /// C#'s `FormatException`, for a number the script doesn't give as one.
     struct FormatException: Error, LocalizedError {
@@ -85,10 +100,23 @@ public enum SelfTest {
         platform: SelfTestPlatform,
         post: @escaping AssistantHost.Post = AssistantHost.postToMain
     ) async {
-        let output = Output()
+        let output = Output(path: outputPath)
+        let missing = platform.missingPermissions()
+        if !missing.isEmpty {
+            // Without them the desktop can't read or type, and keys would go nowhere.
+            output.add(
+                "!! missing permissions: \(missing.joined(separator: ", ")). Allow the app, or the terminal that "
+                    + "starts it, in System Settings › Privacy & Security › Accessibility. Nothing was run.")
+            output.finish()
+            return
+        }
 
         // An idea board in memory: self-tests never touch the user's notes.
-        guard let board = try? BoardStore(path: nil) else { return }
+        guard let board = try? BoardStore(path: nil) else {
+            output.finish()
+            return
+        }
+
         let host = AssistantHost(
             settings: settings, paths: paths, parts: parts, board: board, persistMemory: false, post: post)
         host.status.subscribe { status in
@@ -127,12 +155,7 @@ public enum SelfTest {
             output.add("!! \(String(describing: type(of: error))): \(AssistantHost.message(error))")
         }
 
-        do {
-            try Data(output.text.utf8).write(to: URL(fileURLWithPath: outputPath))
-        } catch {
-            Log.error("self-test output not written: \(Log.kind(of: error))")
-        }
-
+        output.finish()
         await host.shutdown()
     }
 
@@ -342,16 +365,47 @@ public enum SelfTest {
     /// C#'s `{x:F0}`.
     private static func f0(_ value: Double) -> String { String(format: "%.0f", value) }
 
-    /// The output as it grows, from the script and from the host's events.
+    /// The output as it grows, from the script and from the host's events. Each line goes to the file as it comes, so
+    /// a run that hangs or stops early leaves what it did; at the end the whole text is written again, as Windows
+    /// writes it.
     final class Output: @unchecked Sendable {
         private let lock = NSLock()
+        private let path: String?
         private var lines = ""
+        private var file: FileHandle?
+
+        /// - Parameter path: The output file, started empty; nil keeps the output in memory only.
+        init(path: String? = nil) {
+            self.path = path
+            if let path, FileManager.default.createFile(atPath: path, contents: nil) {
+                file = FileHandle(forWritingAtPath: path)
+            }
+        }
 
         func add(_ line: String) {
-            lock.withLock { lines += line + "\n" }
+            lock.withLock {
+                lines += line + "\n"
+                try? file?.write(contentsOf: Data((line + "\n").utf8))
+            }
         }
 
         var text: String { lock.withLock { lines } }
+
+        /// Writes the whole output to the file once more; lines added after it stay in memory only.
+        func finish() {
+            let (text, handle): (String, FileHandle?) = lock.withLock {
+                defer { file = nil }
+                return (lines, file)
+            }
+
+            try? handle?.close()
+            guard let path else { return }
+            do {
+                try Data(text.utf8).write(to: URL(fileURLWithPath: path))
+            } catch {
+                Log.error("self-test output not written: \(Log.kind(of: error))")
+            }
+        }
     }
 }
 

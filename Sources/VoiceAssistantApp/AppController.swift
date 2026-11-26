@@ -52,6 +52,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
     nonisolated static let thumbFreeNote =
         "ThumbFree is running too, with the same Fn key: quit one of them, or text is typed twice."
 
+    /// What the warning says while macOS doesn't let the desktop act.
+    nonisolated static let desktopNotAllowedNote =
+        "Voice Assistant can't open apps or type for you yet: allow it in System Settings › Privacy & Security › "
+        + "Accessibility."
+
     /// Runs the app until it quits.
     public static func main(_ arguments: [String], parts: AppParts = .standard) {
         let options = LaunchOptions(arguments)
@@ -81,7 +86,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public let showRequested = HostEvent<Void>()
 
     /// Something to tell in a notification (Windows' tray balloons): a hotkey another app has, the dictation key that
-    /// can't be seen yet, ThumbFree running too, a restart that failed.
+    /// can't be seen yet, the desktop's missing permission, ThumbFree running too, a restart that failed.
     public let notice = HostEvent<String>()
 
     /// The assistant; nil until it starts, and in a build without a desktop.
@@ -99,6 +104,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// ThumbFree runs too with the same key, so text would be typed twice.
     public private(set) var thumbFreeRunsToo = false
 
+    /// What the desktop may not do yet: the permissions macOS hasn't given (Accessibility, which also lets it send
+    /// keys), read now, for the UI to offer them.
+    public var missingDesktopPermissions: [Permissions.Kind] { desktop?.missingPermissions?() ?? [] }
+
     // MARK: Parts
 
     private let paths: AppPaths
@@ -107,6 +116,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private let instance: SingleInstance
     private let insertMethod = Locked("Paste")
     private let reader = FocusedField.Reader()
+    private var desktop: DesktopParts?
     private var statusItem: NSStatusItem?
     private var hotkeys: [GlobalHotkey] = []
     private var keys: HotkeyTap?
@@ -174,14 +184,17 @@ public final class AppController: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(showRequestedByAnotherCopy(_:)), name: SingleInstance.showNotification,
             object: nil, suspensionBehavior: .deliverImmediately)
-        guard let hostParts = parts.hostParts(settings, paths, insertMethod: insertMethod) else {
-            Log.info("no Mac desktop in this build: the assistant doesn't start")
+        guard let desktop = parts.desktopParts(insertMethod: insertMethod) else {
+            Log.info("no desktop in this build: the assistant doesn't start")
             return
         }
 
+        self.desktop = desktop
+
         // Chromium and Electron apps describe their pages to Accessibility only once an assistive app asks.
         reader.startWaking()
-        let host = AssistantHost(settings: settings, paths: paths, parts: hostParts, board: board)
+        let host = AssistantHost(
+            settings: settings, paths: paths, parts: parts.hostParts(settings, paths, desktop: desktop), board: board)
         self.host = host
         subscriptions.append(host.captureStopped.subscribe { [weak self] id in
             MainActor.assumeIsolated { self?.captureStopped(id) }
@@ -192,6 +205,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
 
         warnIfThumbFreeRuns()
+        warnIfDesktopIsNotAllowed()
         host.start()
     }
 
@@ -418,6 +432,17 @@ public final class AppController: NSObject, NSApplicationDelegate {
         notice.send(message)
     }
 
+    /// The desktop opens apps, reads windows and types through Accessibility, which Windows needs no permission for:
+    /// until macOS allows it, commands can't act, so this says where it's allowed. (The desktop asks again at each
+    /// call, so allowing it works without a restart.)
+    private func warnIfDesktopIsNotAllowed() {
+        let missing = missingDesktopPermissions
+        guard !missing.isEmpty else { return }
+        Log.warn("desktop permissions missing: \(missing.map(\.rawValue).joined(separator: ", "))")
+        host?.report(.warning, Self.desktopNotAllowedNote)
+        tell(Self.desktopNotAllowedNote)
+    }
+
     private func restarted(_ started: Bool) {
         if started {
             NSApp.terminate(nil)
@@ -435,10 +460,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func runSelfTest(_ files: LaunchOptions.SelfTestFiles) {
         Log.start(in: paths.logs)
+        Log.info("self-test \(Self.version)")
         let settings = AppSettings.loadOrCreate(from: paths.settingsFile)
         insertMethod.value = settings.insertMethod
-        guard let hostParts = parts.hostParts(settings, paths, insertMethod: insertMethod) else {
-            let message = "!! This build has no Mac desktop yet, so the self-test can't run.\n"
+        guard let desktop = parts.desktopParts(insertMethod: insertMethod) else {
+            let message = "!! This build has no desktop, so the self-test can't run.\n"
             try? Data(message.utf8).write(to: URL(fileURLWithPath: files.output))
             NSApp.terminate(nil)
             return
@@ -446,7 +472,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         reader.startWaking()
         let paths = self.paths
-        let platform = SelfTestPlatform.mac(insertMethod)
+        let hostParts = parts.hostParts(settings, paths, desktop: desktop)
+        let platform = SelfTestPlatform.mac(insertMethod, desktop: desktop)
         Task { @MainActor in
             await SelfTest.run(
                 scriptPath: files.script, outputPath: files.output, settings: settings, paths: paths,

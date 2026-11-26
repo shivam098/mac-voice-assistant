@@ -1,0 +1,7 @@
+# What the TextEdit lab's output must have besides its PASS checks (scripts/self-test.sh --expect): TextEdit in front,
+# and the document after the voice typing and after both dictations ("Hello from the self test.", a line break and
+# "A second line.", then " A dictated sentence. Typed with keys."): the text's length in UTF-16 units and the first 12
+# hex digits of its SHA-256.
+   foreground: com.apple.TextEdit
+   focused: AXTextArea len=40 hash=D6E3F4CE489F
+   focused: AXTextArea len=78 hash=FC42F64C5F4B

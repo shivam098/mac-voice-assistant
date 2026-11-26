@@ -304,9 +304,9 @@ public final class AssistantHost: @unchecked Sendable {
         startQueue()
         guard settings.discoverStartMenuApps, let discover = parts.discoverApps else { return }
         let found = Task.detached(priority: .userInitiated) { [self] in
+            // The desktop logs how many it found.
             let apps = discover()
             try? await runOnQueue { [self] in catalog.setDiscoveredApps(apps) }
-            Log.info("installed apps discovered: \(apps.count)")
         }
 
         _ = await Blocking.finished(found, within: 25)
@@ -472,13 +472,11 @@ public final class AssistantHost: @unchecked Sendable {
     private func discoverApps() {
         guard settings.discoverStartMenuApps, let discover = parts.discoverApps else { return }
 
-        // The catalog belongs to the controller's queue, so the list is handed over there.
+        // The catalog belongs to the controller's queue, so the list is handed over there. The desktop logs how many
+        // it found (C#'s host logs it itself).
         Task.detached(priority: .utility) { [self] in
             let apps = discover()
-            enqueue { [self] in
-                catalog.setDiscoveredApps(apps)
-                Log.info("installed apps discovered: \(apps.count)")
-            }
+            enqueue { [self] in catalog.setDiscoveredApps(apps) }
         }
     }
 
