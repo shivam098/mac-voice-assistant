@@ -1,6 +1,7 @@
 import AppKit
 import VoiceAssistantBoard
 import VoiceAssistantCore
+import VoiceAssistantMac
 import XCTest
 @testable import VoiceAssistantApp
 
@@ -297,6 +298,17 @@ final class AppUITests: XCTestCase {
         rig.ui.close()
         XCTAssertNil(window.model.board.editing)
         XCTAssertEqual(rig.board.items.first?.text, "A voice game for kids")
+        await rig.close()
+    }
+
+    /// The app's number badges are the desktop's overlay panel over other apps (VoiceAssistantMac's `MarkerOverlay`).
+    @MainActor
+    func testTheAppsNumberBadgesAreTheDesktopsOverlay() async throws {
+        let rig = try AppUIRig()
+        let parts = AppUI.Parts.standard(
+            settings: AppSettings(), paths: rig.paths, board: rig.board, host: rig.host, restart: { _ in })
+        let badges = try XCTUnwrap(parts.badges?())
+        XCTAssertTrue(badges is MarkerOverlay)
         await rig.close()
     }
 }

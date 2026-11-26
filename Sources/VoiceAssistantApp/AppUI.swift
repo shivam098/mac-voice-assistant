@@ -1,6 +1,7 @@
 import AppKit
 import VoiceAssistantBoard
 import VoiceAssistantCore
+import VoiceAssistantMac
 
 /// The menu bar item as the app's UI uses it: `MenuBar` in the app, a fake in tests.
 @MainActor
@@ -48,10 +49,8 @@ extension MainWindow: AppWindow {
     }
 }
 
-/// The desktop's number badges and click outline over other apps (Windows' `MarkerOverlay`): the members of
-/// VoiceAssistantMac's `MarkerOverlay`, which the desktop layer's part 2 brings. Until it's in, the app has none, and
-/// the host's `choicesChanged` and `highlight` aren't drawn; then `extension MarkerOverlay: NumberBadges {}` and
-/// `badges: { MarkerOverlay() }` in `AppUI.Parts.standard` draw them.
+/// The desktop's number badges and click outline over other apps (Windows' `MarkerOverlay`): VoiceAssistantMac's
+/// `MarkerOverlay` in the app, a recorder in tests. They draw the host's `choicesChanged` and `highlight`.
 @MainActor
 protocol NumberBadges: AnyObject {
     /// Numbers on the candidates; nil, or none, hides them.
@@ -60,6 +59,8 @@ protocol NumberBadges: AnyObject {
     /// Outlines what was just clicked, selected or focused, for under a second.
     func flash(_ rect: ScreenRect)
 }
+
+extension MarkerOverlay: NumberBadges {}
 
 /// The window's members of the same names as the assistant host's (`AssistantControls`).
 extension AssistantHost: AssistantControls {}
@@ -91,7 +92,7 @@ final class AppUI {
         /// Quits the app: the menu's Quit Voice Assistant.
         var quit: @MainActor () -> Void
 
-        /// The desktop's number badges; nil until the desktop's navigation part brings them.
+        /// The desktop's number badges; nil: none.
         var badges: (@MainActor () -> NumberBadges)?
     }
 
@@ -315,7 +316,7 @@ final class AppUI {
 
 extension AppUI.Parts {
     /// The app's: the menu bar item, the window on the assistant host and its AI brain, reminder cards with the Mac's
-    /// alert sound, the login item, and quitting. No number badges yet.
+    /// alert sound, the login item, quitting, and the number badges over other apps.
     static func standard(
         settings: AppSettings, paths: AppPaths, board: BoardStore, host: AssistantHost,
         restart: @escaping @MainActor (_ windowVisible: Bool) -> Void
@@ -334,6 +335,6 @@ extension AppUI.Parts {
             sound: { NSSound.beep() },
             startAtLogin: startAtLogin,
             quit: { NSApp.terminate(nil) },
-            badges: nil)
+            badges: { MarkerOverlay() })
     }
 }
