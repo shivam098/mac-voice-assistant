@@ -174,8 +174,9 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
 - [ ] **"Hey Jarvis, mark renew passport as done".** It's ticked off.
 - [ ] **On the window's Idea board:** type a note in a list's box (Return adds it), tick it, drag it to another place or
   another list (a line shows where it will land), double-click to edit it (Return saves, Esc doesn't), and right-click
-  to move, snooze or delete it. Dragging a note onto another app does nothing. Everything is still there after
-  quitting and opening Voice Assistant again.
+  to move, snooze or delete it. Dragging a note onto another app does nothing. An edit left open without Return is
+  kept when you close the window, click another app or quit. Everything is still there after quitting and opening
+  Voice Assistant again.
 
 ### Navigation by name and by numbers, in Safari and Chrome
 
