@@ -15,7 +15,7 @@ Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for 
 this package pins to a commit of that repo's main (`606d7a4` for v0.1.0); the Mac workflow's daily run builds against
 the tip of its main instead, to catch a change there. docs/design.md is the design and has the phase table.
 
-Merged (main was `645c0c8` when this was last updated):
+Merged (main was `3a7aea7` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -41,22 +41,24 @@ Merged (main was `645c0c8` when this was last updated):
   idea board in the window.
 - **The desktop layer, part 2** (#25): navigation (clicking by name, number badges, browser tabs in Chrome, Edge, Brave
   and Safari), tested for real in Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
+- **The desktop layer, part 3** (#29): the AI brain's window list (at most 12; a hidden app's windows as minimized;
+  alerts and panels left out) and switching to a window, so the Mac implements all 18 of the core's desktop
+  requirements; a fix so Safari's address bar isn't taken for a page box; and the NavigationLab acceptance tests
+  N1–N9, with N10 and N16, passing through the app's self-test in Chrome and Safari on GitHub's Mac (33 checks each).
 
 In review or being built on the Windows PC, through PRs (check `gh pr list`):
 
-- **The desktop layer, part 3** (branch `desktop-3`): listing and activating windows, and the NavigationLab acceptance
-  tests N1–N9 through the self-test runner on GitHub's Mac.
-- **The v0.1.0 release** (branch `release-0.1.0`): thumbfree-mac pinned, the daily canary against its main, and the
-  docs for the finished app. Once it has merged, the Release workflow publishes the v0.1.0 pre-release.
+- **The v0.1.0 release** (#28, branch `release-0.1.0`): thumbfree-mac pinned, the daily canary against its main, and
+  the docs for the finished app. Once it has merged, the Release workflow publishes the v0.1.0 pre-release.
 
 The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
 gone.
 
-**What that means on this Mac today:** the App workflow's .dmg from main is the whole app, navigation included, and
-testing on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building there needs #19 (Swift
-6.3's type check) until it merges. So: set up the Mac, run every test, including the ones that need a real Mac
-(sections 3 and 5), measure the AI brain on a real graphics chip, then install v0.1.0 once it's released (or the latest
-.dmg from main) and go through the app checklist in section 5.
+**What that means on this Mac today:** the App workflow's .dmg from main is the whole app, navigation and window
+switching included, and testing on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building
+there needs #19 (Swift 6.3's type check) until it merges. So: set up the Mac, run every test, including the ones that
+need a real Mac (sections 3 and 5), measure the AI brain on a real graphics chip, then install v0.1.0 once it's
+released (or the latest .dmg from main) and go through the app checklist in section 5.
 
 Before you start, see what has changed since this was written:
 
@@ -182,8 +184,10 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
    - Force Quit while the brain's model is loading: llama-server must not keep running (`pgrep llama-server` prints
      nothing);
    - Quit, start at login, and ThumbFree for Mac side by side.
-4. **The NavigationLab acceptance tests** (windows-voice-assistant `tests/NavigationLab`; N1–N9 in
-   `docs/specs/acceptance-tests.md`), once the desktop layer's navigation parts have merged.
+4. **The NavigationLab acceptance tests** (N1–N9 of windows-voice-assistant's `docs/specs/acceptance-tests.md`, with
+   N10 and N16): they pass on GitHub's Mac, so run them here, in Chrome and in Safari, with `tests/NavigationLab/run.sh`
+   as docs/testing.md says (docs/self-test.md has the details). The Safari run refuses to start while Safari is open,
+   and quits Safari when it's done.
 
 ## 6. Report what you found
 

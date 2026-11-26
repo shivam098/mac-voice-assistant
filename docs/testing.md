@@ -120,6 +120,8 @@ down.
   Finder.
 - [ ] **In a text box: "select all", "copy", "paste", "undo".** The ⌘ shortcuts.
 - [ ] **"Maximize this window".** The window in front zooms to fill the screen (not full screen).
+- [ ] **Hide TextEdit (⌘H), then "Hey Jarvis, switch to TextEdit".** TextEdit comes back, its window in front. The
+  same with TextEdit's only document minimized: the document comes back from the Dock.
 - [ ] **Speak naturally: "can you please open TextEdit for me".** TextEdit opens. Say something it doesn't know, then
   say it another way within 30 seconds: next time the first way works too.
 - [ ] **"Hey Jarvis, pause listening".** The microphone turns off (the orange dot goes); ⌃⇧Space turns it on again.
@@ -212,9 +214,10 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   [acceptance-tests.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/specs/acceptance-tests.md),
   with N10 and N16, in Chrome and in Safari. They need this repo and Xcode (HANDOFF-mac.md sections 2 and 3): after
   `swift build -c release`, run `tests/NavigationLab/run.sh .build/release/VoiceAssistant chrome`, then the same with
-  `safari` with Safari closed ([self-test.md](self-test.md)), and don't use the Mac while each runs (about a minute).
-  Each ends with a line such as "nav-lab-chrome: 33 passed, 0 failed". They pass on GitHub's runner; this Mac's screen,
-  fonts and browser versions are what's new.
+  `safari` ([self-test.md](self-test.md)), and don't use the Mac while each runs (about a minute). The Safari run
+  refuses to start while Safari is open, so quit it first, and it quits Safari when it's done (its own window closes;
+  windows of Safari's last session that it reopened stay). Each ends with a line such as "nav-lab-chrome: 33 passed, 0
+  failed". They pass on GitHub's runner; this Mac's screen, fonts and browser versions are what's new.
 
 ### The AI brain
 
@@ -227,6 +230,9 @@ It needs Apple silicon and macOS 13.3 or later. On an Intel Mac, check only that
   pill says Thinking…, then the YouTube window comes to the front and a video opens. How long did it think?
 - [ ] **The same with that browser window minimized, then with the browser hidden (⌘H).** The window comes back to the
   front each time.
+- [ ] **Two TextEdit documents, saved as Holiday plan and Shopping list, with Shopping list minimized: "Hey Jarvis,
+  switch to the shopping list window".** The AI brain finds it among the windows on the screen and brings it back to
+  the front. The same with TextEdit hidden (⌘H): TextEdit comes back, with Shopping list in front.
 - [ ] **More requests: "Hey Jarvis, mute the video", "open Instagram in a new tab", "what's the weather in
   Bangalore?", "tell me a joke", "reply thanks to Rahul on WhatsApp"** (it types the reply and asks "Send it?": say
   "no"). Which come out right?
