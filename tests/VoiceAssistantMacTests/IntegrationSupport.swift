@@ -287,6 +287,21 @@ enum Integration {
         return lines.joined(separator: " | ")
     }
 
+    /// An app's windows as Accessibility lists them (AXWindows): number, role and subrole, whether minimized, title.
+    static func describeAppWindows(_ desktop: MacDesktop, _ pid: pid_t) -> String {
+        let ax = desktop.ax
+        let windows = (try? ax.elements(kAXWindowsAttribute, of: ax.application(pid))) ?? []
+        let lines: [String] = windows.map { (window: AnyObject) -> String in
+            let number = ax.windowNumber(of: window) ?? 0
+            let role = (try? ax.role(of: window)) ?? "-"
+            let subrole = (try? ax.subrole(of: window)) ?? "-"
+            let minimized = (try? ax.number(kAXMinimizedAttribute, of: window)).map { "\($0)" } ?? "-"
+            let title = (try? ax.string(kAXTitleAttribute, of: window)) ?? "-"
+            return "\(number) \(role)/\(subrole) minimized \(minimized) \"\(title)\""
+        }
+        return "\(windows.count) windows: " + lines.joined(separator: " | ")
+    }
+
     /// What a scan of `root` walks (outside its pages unless `pages`): roles, subroles, names, whether each shows and
     /// its parent's role, for when something isn't found.
     static func dump(_ desktop: MacDesktop, _ root: AnyObject, pages: Bool = false, limit: Int = 150) {

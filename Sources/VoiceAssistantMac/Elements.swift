@@ -97,10 +97,15 @@ extension AXSystem {
         return false
     }
 
-    /// Chromium's address bar: its view's class, which Chromium gives as the element's AXDOMClassList, is
-    /// OmniboxViewViews (Chrome's, Edge's, Brave's…), as Windows reads it from the class name.
+    /// A browser's address bar: Chromium's, whose view's class Chromium gives as the element's AXDOMClassList
+    /// (OmniboxViewViews: Chrome's, Edge's, Brave's…), as Windows reads it from the class name; Safari's smart search
+    /// field, by its identifier. In any language.
     func isAddressBar(_ element: AnyObject) throws -> Bool {
-        try strings(AXName.domClassList, of: element).contains { $0.hasSuffix("OmniboxViewViews") }
+        if try string(AXName.identifier, of: element) == AXName.safariAddressBar {
+            return true
+        }
+
+        return try strings(AXName.domClassList, of: element).contains { $0.hasSuffix("OmniboxViewViews") }
     }
 
     /// The element's frame as the core's `ScreenRect`, in points from the top left of the main display.

@@ -148,6 +148,9 @@ enum AXName {
     static let popover = "AXPopover"
     static let tabButton = "AXTabButton"
     static let scrollToVisible = "AXScrollToVisible"
+
+    /// Safari's address bar's identifier (its smart search field's).
+    static let safariAddressBar = "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"
 }
 
 /// The Accessibility API itself. Every call waits at most `timeout` for the app's answer.

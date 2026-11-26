@@ -90,6 +90,10 @@ The porting guide's capability map is the plan. These are the points it leaves o
   pop-up button's menu inside the press). The numbers and the click outline are a borderless panel above other
   windows that clicks go through, that never takes the focus, and that stays when Jarvis hides (closing its window
   hides the app), as the pill and the reminder cards do.
+- **The AI brain's windows** (`listWindows`, `activateWindow`): the standard windows of the apps in the Dock, and of
+  the app taking the keys, front-most first with the one taking the keys first of all, at most 12, as on Windows.
+  Minimized windows count, and a hidden app's too, as minimized; so does a window without a title, which Windows skips
+  (a Mac app's only window can have none). Bringing one to the front unhides its app and restores it first.
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.
@@ -144,11 +148,13 @@ guide explains each one, like ThumbFree's.
 ## Testing
 
 - **GitHub's macOS runners:** the ported unit tests on every change (the core's with a fake desktop, as on Windows),
-  and the app build. A daily build catches a change in thumbfree-mac that breaks this app.
-- **A real Mac:** the navigation acceptance tests
+  the app build, the desktop's integration tests in other apps, and the self-test's labs through the app: TextEdit, and
+  the navigation acceptance tests
   ([acceptance-tests.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/specs/acceptance-tests.md)
-  N1–N9) with the same `tests/NavigationLab` pages in Chrome and Safari, plus a checklist for the microphone, the
-  permissions, the wake word, Fn and the brain: [testing.md](testing.md), which also says how to install a test build.
+  N1–N9) on the same `tests/NavigationLab` pages in Chrome and Safari ([self-test.md](self-test.md)). A daily build
+  catches a change in thumbfree-mac that breaks this app.
+- **A real Mac:** the same NavigationLab runs, plus a checklist for the microphone, the permissions, the wake word, Fn
+  and the brain: [testing.md](testing.md), which also says how to install a test build.
 
 ## Phases
 
@@ -156,7 +162,7 @@ guide explains each one, like ThumbFree's.
 |---|---|---|
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
-| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Part 1 (apps, windows, keys, typing and focus) is done; part 2 (navigation: scans and clicks, browser tabs, the numbers) is in review, its integration tests passing on GitHub's runner in Chrome, Edge, Safari, Finder, TextEdit and System Settings; part 3 (the NavigationLab acceptance run, through the self-test) is next |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | The menu bar, the pill, the reminder cards and the window (Home, Settings and What you can say) are done, drawn on CI and wired to the assistant, and the App workflow checks that the app starts into them; the idea board's page is in review |
+| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Done on GitHub's runner: part 1 (apps, windows, keys, typing and focus), part 2 (navigation: scans and clicks, browser tabs, the numbers) and part 3 (the AI brain's window list and switching, so no requirement is left to the core's defaults; the NavigationLab's acceptance tests N1–N9, with N10 and N16, through the app's self-test in Chrome and Safari). The integration tests pass in Chrome, Edge, Safari, Finder, TextEdit and System Settings. The check on a real Mac is pending |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | The menu bar, the pill, the reminder cards and the window (Home, the idea board, Settings and What you can say) are done, drawn on CI and wired to the assistant, and the App workflow checks that the app starts into them |
 | 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
 | 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization (the hardened runtime then needs the `com.apple.security.automation.apple-events` entitlement for Safari's tabs through AppleScript) | |

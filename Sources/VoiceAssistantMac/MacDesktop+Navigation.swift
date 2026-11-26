@@ -118,7 +118,7 @@ extension MacDesktop {
             found += 1
             guard rect.width >= 40, (try? ax.isSettable(kAXFocusedAttribute, of: element)) != false,
                   takesTypedText(element, role) else { return true }
-            let name = DotNet.trim((try? ax.name(of: element)) ?? "")
+            let name = boxName(element, inPage: place.inPage)
             let id = registry.register(element, inPage: place.inPage)
             result.append(UiElement(id: id, name: name, role: .textBox, rect: rect))
             return true
@@ -126,6 +126,17 @@ extension MacDesktop {
 
         log("text box scan: \(result.count) of \(found) in \(milliseconds(since: start)) ms")
         return result
+    }
+
+    /// A text box's name (`name(of:)`); a browser's address bar says it is one. The core knows the address bar by
+    /// its name, which says "address" or "URL" in Windows' browsers and in Chrome's in English (its "start typing"
+    /// numbers the page's boxes, never the address bar): Safari's is a "smart search field", and other languages name
+    /// Chromium's otherwise, so " (address bar)" goes after their names (`isAddressBar`).
+    func boxName(_ element: AnyObject, inPage: Bool) -> String {
+        let name = DotNet.trim((try? ax.name(of: element)) ?? "")
+        let saysSo = name.range(of: "address", options: .caseInsensitive) != nil || DotNet.contains(name, "URL")
+        guard !inPage, !saysSo, (try? ax.isAddressBar(element)) == true else { return name }
+        return name.isEmpty ? "Address bar" : name + " (address bar)"
     }
 
     static let textBoxRoles: Set<String> = [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole]

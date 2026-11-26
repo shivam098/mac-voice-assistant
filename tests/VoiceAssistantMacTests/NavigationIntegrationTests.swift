@@ -595,6 +595,9 @@ final class NavigationIntegrationTests: XCTestCase {
             return listed.first { $0.window.sameWindow(other.window) }?.show == .minimized
         }
         Integration.report("with one minimized: \(Integration.describe(listed))")
+        let textEditPid = pid_t(other.window.processId)
+        let afterMinimizing = Integration.describeAppWindows(desktop, textEditPid)
+        Integration.report("TextEdit's AXWindows with one minimized: \(afterMinimizing)")
         XCTAssertTrue(minimized, "\(other.window.title) listed as minimized")
         result = try await desktop.activateWindow(other.window)
         XCTAssertTrue(result.success, result.message)
@@ -612,6 +615,8 @@ final class NavigationIntegrationTests: XCTestCase {
             return running.isHidden && documents.count == 2 && documents.allSatisfy { $0.show == .minimized }
         }
         Integration.report("with TextEdit hidden (\(running.isHidden)): \(Integration.describe(listed))")
+        let whileHidden = Integration.describeAppWindows(desktop, textEditPid)
+        Integration.report("TextEdit's AXWindows while hidden: \(whileHidden)")
         XCTAssertTrue(hidden, "TextEdit's documents listed as minimized while it's hidden")
         result = try await desktop.activateWindow(alpha.window)
         XCTAssertTrue(result.success, result.message)
@@ -791,6 +796,14 @@ final class NavigationIntegrationTests: XCTestCase {
         Integration.report("\(browser) mail page's text boxes: \(boxes.map(\.name))")
         XCTAssertTrue(boxes.contains { $0.name == "To" })
         XCTAssertTrue(boxes.contains { $0.name == "Subject" })
+        // The core knows the browser's address bar by its name: Safari's smart search field says it is one.
+        let outside: [String] = boxes.compactMap { box in
+            guard let entry = desktop.registry.lookup(box.id), !entry.inPage else { return nil }
+            let id = (try? desktop.ax.identifier(of: entry.element)) ?? "?"
+            return "\(box.name) (id \(id))"
+        }
+        Integration.report("\(browser) boxes outside the page: \(outside)")
+        XCTAssertTrue(boxes.contains { $0.name.lowercased().contains("address") }, "\(browser)'s address bar says so")
     }
 
     /// Closes the window with its close button.
