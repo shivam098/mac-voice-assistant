@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantBoard
 import VoiceAssistantCore
@@ -55,8 +56,8 @@ extension UIRenderTests {
     }
 
     @MainActor
-    func testTheSettingsPage() throws {
-        try Self.withoutMotion {
+    func testTheSettingsPage() {
+        Self.withoutMotion {
             let rig = PageRig()
             defer { rig.folder.remove() }
             rig.brain.status = .downloading(received: 1_073_741_824, total: 2_392_985_300)
@@ -90,8 +91,8 @@ extension UIRenderTests {
     }
 
     @MainActor
-    func testWhatYouCanSay() throws {
-        try Self.withoutMotion {
+    func testWhatYouCanSay() {
+        Self.withoutMotion {
             let rig = PageRig()
             defer { rig.folder.remove() }
             let window = Self.model(rig)

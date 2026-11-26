@@ -1,4 +1,5 @@
 import AVFoundation
+import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantBoard
 import VoiceAssistantCore

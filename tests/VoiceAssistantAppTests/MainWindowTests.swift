@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantCore
 import XCTest
