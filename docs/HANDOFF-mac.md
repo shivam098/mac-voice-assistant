@@ -100,27 +100,42 @@ swift build -c release
 swift test
 ```
 
-On CI, `swift test` ran about 660 tests on main with no failures. Three groups skip unless you ask for them, because
-they act on this Mac or download a lot:
+On CI, `swift test` runs about 867 tests on main, 12 of them skipped, with no failures. Four groups run only when you
+ask for them, because they act on this Mac or download a lot. The 12 skipped on CI are the navigation tests (8), the
+AI brain's integration test and bench (3), and the stand-in app that the brain supervisor's test starts (1); outside
+GitHub Actions the 6 Accessibility tests skip too.
 
-1. **The Accessibility tests** open TextEdit, type into it and quit it. Give Accessibility to the app you run them from
-   (Terminal or iTerm: System Settings › Privacy & Security › Accessibility), keep your hands off the keyboard and
-   mouse while they run, then:
+1. **The Accessibility tests** (`AccessibilityIntegrationTests`) open TextEdit, type into it and quit it. Give
+   Accessibility to the app you run them from (Terminal or iTerm: System Settings › Privacy & Security ›
+   Accessibility), keep your hands off the keyboard and mouse while they run, then:
 
    ```sh
    VOICE_ASSISTANT_AX_TESTS=1 swift test --filter AccessibilityIntegrationTests
    ```
 
-   They change two of TextEdit's settings and put them back afterwards.
+   They change two of TextEdit's settings and put them back afterwards. On GitHub's runners they run anyway
+   (`GITHUB_ACTIONS=true`).
 
-2. **The AI brain's integration test** downloads llama.cpp (17 MB) and a 1.2 MB test model, starts llama-server on the
-   graphics chip, and checks that the server ends when the app is killed:
+2. **The navigation integration tests** (`NavigationIntegrationTests`) drive the NavigationLab pages in Chrome, Edge and
+   Safari, and Finder, TextEdit and System Settings, for a few minutes, with the same permission and hands off:
+
+   ```sh
+   VOICE_ASSISTANT_NAVIGATION_TESTS=1 swift test --filter NavigationIntegrationTests
+   ```
+
+   `VOICE_ASSISTANT_AX_TESTS=1` runs them too. A browser that isn't installed is skipped, and unless the app you run
+   them from may control Safari (Automation, which the Safari NavigationLab run asks for), Safari's test checks only
+   what works without AppleScript.
+
+3. **The AI brain's integration test** (`BrainIntegrationTests`, `BRAIN_INTEGRATION_FOLDER`) downloads llama.cpp
+   (17 MB) and a 1.2 MB test model, starts llama-server on the graphics chip, and checks that the server ends when the
+   app is killed:
 
    ```sh
    BRAIN_INTEGRATION_FOLDER="$HOME/brain-integration" swift test --filter BrainIntegrationTests
    ```
 
-3. **The AI brain bench** downloads the real 2.4 GB model: section 5, item 1.
+4. **The AI brain bench** (`BrainBenchTests`, `BRAIN_BENCH_FOLDER`) downloads the real 2.4 GB model: section 5, item 1.
 
 Anything that fails here but passes on CI is a finding: write it down (section 6).
 
@@ -168,7 +183,7 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
    memory. On GitHub's runners it scored 21/25 (17 of the first 21); Windows scores 22/25 (18 of 21) at about 1.9 s a
    request. Record the numbers with the Mac's chip and memory. Don't decide anything from them: that's the owner's
    call (section 8).
-2. **The Accessibility tests and the brain's integration test** (section 3) on a real Mac.
+2. **The Accessibility tests, the navigation integration tests and the brain's integration test** (section 3) here.
 
 **Once the whole app is out** (v0.1.0, or the App workflow's .dmg after the wiring PR has merged):
 
@@ -222,7 +237,10 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
 - **The AI brain on Intel Macs:** on GitHub's Intel runner it scored 21/25, at about 9 s a request (Windows: 1.9 s),
   50–68 s for the first request, and 4.9 GB of peak memory. Intel Macs aren't offered the brain today.
 - **The brain on Apple silicon:** what the real-Mac bench shows (item 1 of section 5). docs/design.md also says to
-  compare the Q4_K_M model with Q4_0 on the graphics chip before the first release; the bench can't switch models yet.
+  compare the Q4_K_M model with Q4_0 on the graphics chip before the first stable release; the bench can't switch
+  models yet.
+- **Commands on Parakeet:** docs/design.md also plans to compare Parakeet with Whisper small.en for "Hey Jarvis" and
+  commands, on the same recordings, before the first stable release. Nothing here measures it yet.
 - **Windows bugs found while porting:**
   - a reminder time that has passed moves exactly 24 hours, which is an hour off across a daylight-saving change;
   - "tonight" after 8 pm gives a time that has already passed;

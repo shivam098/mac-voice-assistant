@@ -29,9 +29,9 @@ public struct BrainFiles: Sendable {
         "d030a790cb868c15066b1f463a667f3fcb3c807a7c0427d64a49b1b6980ce723", 12_971_992)
 
     /// Windows' model. Q4_0 is the format llama.cpp's Adreno code is tuned for (ai-brain.md, spike 2); on Metal, Q4_K_M
-    /// is measured against it before the first release (docs/design.md). Pinned to the commit of unsloth's repository
-    /// that has this file, so a new upload there can't make a finished 2.4 GB download fail its check (Windows still
-    /// follows main).
+    /// is measured against it before the first stable release (docs/design.md). Pinned to the commit of unsloth's
+    /// repository that has this file, so a new upload there can't make a finished 2.4 GB download fail its check
+    /// (Windows still follows main).
     static let pinnedModel = ModelFile(
         "Qwen3-4B-Instruct-2507-Q4_0.gguf",
         "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/"
