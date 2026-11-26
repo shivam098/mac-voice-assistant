@@ -73,3 +73,37 @@ jobs:
           # The server's log, printed by the test, then says which graphics chip it uses.
           LLAMA_ARG_LOG_VERBOSITY: '4'
         run: BRAIN_INTEGRATION_FOLDER="$HOME/brain-integration" swift test --filter BrainIntegrationTests
+
+      # The navigation integration tests drive Chrome, Edge and Safari. The runner image installs Chrome and Edge with
+      # Homebrew, which quarantines them, and Launch Services asks before it first opens a quarantined app, which no one
+      # answers here. Safari's tabs come from AppleScript, which needs the Automation permission: the image gives its
+      # agent (whose processes the tests are) that permission for Finder and System Events only.
+      - name: Prepare the apps the navigation tests drive
+        run: |
+          for app in "/Applications/Google Chrome.app" "/Applications/Microsoft Edge.app"; do
+            if xattr -p com.apple.quarantine "$app" >/dev/null 2>&1; then
+              sudo xattr -dr com.apple.quarantine "$app" && echo "$app: no longer quarantined"
+            else
+              echo "$app: not quarantined"
+            fi
+          done
+
+          db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          now=$(date +%s)
+          for client in /opt/hca/hosted-compute-agent /bin/bash; do
+            row="'kTCCServiceAppleEvents','$client',1,2,3,1,NULL,NULL,0,'com.apple.Safari',NULL,NULL,$now,NULL,NULL,'UNUSED',$now"
+            if sqlite3 "$db" "INSERT OR REPLACE INTO access VALUES($row);"; then
+              echo "Automation of Safari allowed for $client"
+            else
+              echo "TCC.db refused the row for $client"
+            fi
+          done
+
+      # The navigation integration tests (tests/VoiceAssistantMacTests/NavigationIntegrationTests.swift): the
+      # NavigationLab pages in Chrome, Edge and Safari, and Finder, TextEdit and System Settings, through the real
+      # Accessibility API, CGEvent and AppleScript. A step of their own with a time limit, as they drive other apps.
+      - name: Navigation integration tests (browsers, Finder, TextEdit, System Settings)
+        timeout-minutes: 12
+        env:
+          VOICE_ASSISTANT_NAVIGATION_TESTS: '1'
+        run: swift test --filter NavigationIntegrationTests

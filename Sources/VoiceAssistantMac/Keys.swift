@@ -108,12 +108,11 @@ public protocol KeyLayout: AnyObject {
     func keyCode(typing character: Character, command: Bool) -> CGKeyCode?
 }
 
-/// The keyboard layout in use, read with Text Input Sources and UCKeyTranslate as ThumbFreeMac's
-/// `PasteTyper.SystemKeys` finds ⌘V's key: with ⌘ held, the layout ⌘ shortcuts use (the current one, or for a
-/// non-Latin one the Latin layout that goes with it; "Dvorak – QWERTY ⌘" types QWERTY); without modifiers, that
-/// layout's own keys. Text Input Sources answers on the main thread only, so the keys of all the characters chords use
-/// are found there, now or as soon as the main thread is free, and again whenever the layout changes. Until then
-/// there are none, and `KeyPresser` uses the US layout's.
+/// The keyboard layout in use, read with ThumbFreeMac's `PasteTyper.SystemKeys.keyCode(typing:with:)` (as it finds ⌘V's
+/// key): with ⌘ held, the layout ⌘ shortcuts use (the current one, or for a non-Latin one the Latin layout that goes
+/// with it; "Dvorak – QWERTY ⌘" types QWERTY); without modifiers, that layout's own keys. It answers on the main thread
+/// only, so the keys of all the characters chords use are found there, now or as soon as the main thread is free, and
+/// again whenever the layout changes. Until then there are none, and `KeyPresser` uses the US layout's.
 public final class SystemKeyLayout: NSObject, KeyLayout, @unchecked Sendable {
     /// The characters chords can name.
     static let characters = Array("abcdefghijklmnopqrstuvwxyz0123456789[]")
@@ -157,45 +156,18 @@ public final class SystemKeyLayout: NSObject, KeyLayout, @unchecked Sendable {
         }
     }
 
+    /// The keys that type each character chords can name, with ⌘ held and with no modifiers. Main thread only.
     private func update() {
-        guard let layout = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() else { return }
-        let plain = Self.keys(in: layout, command: false)
-        let command = Self.keys(in: layout, command: true)
+        var plain: [Character: CGKeyCode] = [:]
+        var command: [Character: CGKeyCode] = [:]
+        for character in Self.characters {
+            plain[character] = PasteTyper.SystemKeys.keyCode(typing: character, with: [])
+            command[character] = PasteTyper.SystemKeys.keyCode(typing: character, with: .command)
+        }
+
         lock.withLock {
             self.plain = plain
             self.command = command
-        }
-    }
-
-    /// For each character chords can name, the first key (by key code) that types it alone in `layout`, with ⌘ held
-    /// or with no modifiers, found with UCKeyTranslate. Main thread only.
-    static func keys(in layout: TISInputSource, command: Bool) -> [Character: CGKeyCode] {
-        guard let property = TISGetInputSourceProperty(layout, kTISPropertyUnicodeKeyLayoutData) else { return [:] }
-        let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue()
-        guard let bytes = CFDataGetBytePtr(data) else { return [:] }
-
-        let modifiers = command ? UInt32((cmdKey >> 8) & 0xFF) : 0
-        let keyboard = UInt32(LMGetKbdType())
-        let options = OptionBits(kUCKeyTranslateNoDeadKeysMask)
-        let wanted = Set(characters.compactMap { $0.utf16.first })
-        return bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { keys in
-            var found: [Character: CGKeyCode] = [:]
-            for code in UInt16(0)..<128 {
-                var deadKeys: UInt32 = 0
-                var length = 0
-                var typed = [UniChar](repeating: 0, count: 4)
-                let status = UCKeyTranslate(
-                    keys, code, UInt16(kUCKeyActionDown), modifiers, keyboard, options, &deadKeys, typed.count,
-                    &length, &typed)
-                guard status == 0, length == 1, wanted.contains(typed[0]),
-                      let scalar = Unicode.Scalar(typed[0]) else { continue }
-                let character = Character(scalar)
-                if found[character] == nil {
-                    found[character] = CGKeyCode(code)
-                }
-            }
-
-            return found
         }
     }
 }

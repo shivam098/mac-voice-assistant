@@ -70,10 +70,10 @@ It opens at Home, with its icon in the menu bar and the status pill at the botto
 hasn't allowed yet, each with a button that asks for it: the microphone, and Accessibility (System Settings › Privacy &
 Security › Accessibility) to open apps and type. The first time, it downloads the speech model (about 264 MB). Then
 "Hey Jarvis" and tap-to-dictate with Fn work, reminders pop up as cards, and what happens is in the log
-(`~/Library/Logs/VoiceAssistant`). The idea board's page and the number badges ("show numbers") aren't there yet. The
-settings are in `~/Library/Application Support/VoiceAssistant/settings.json`. The App workflow also opens the app on
-the runner and checks that it starts into its UI (`scripts/launch-check.sh`), keeping its log and a screenshot as the
-run's artifact (`launch-check`).
+(`~/Library/Logs/VoiceAssistant`). "Show numbers" draws its numbers over the app in front, and the window's Ideas page
+is the idea board. The settings are in `~/Library/Application Support/VoiceAssistant/settings.json`. The App workflow
+also opens the app on the runner and checks that it starts into its UI (`scripts/launch-check.sh`), keeping its log
+and a screenshot as the run's artifact (`launch-check`).
 
 The self-test ([docs/self-test.md](docs/self-test.md)) runs scripted transcripts through the real controller and
 desktop, as the acceptance labs do. The TextEdit lab opens TextEdit, types into it and quits it, so leave the Mac alone

@@ -8,6 +8,10 @@ import VoiceAssistantCore
 /// The Mac's side of the core's `JarvisDesktop` (windows-voice-assistant `WindowsDesktop`): apps and windows through
 /// NSWorkspace and the Accessibility API (`AXSystem`), keys through CGEvent (`KeyPresser`, on ThumbFreeMac's
 /// `PasteTyper.Keys`), and typing through ThumbFreeMac's `PasteTyper`, which pastes and puts the pasteboard back.
+/// Navigation scans windows through Accessibility and clicks with its actions or, failing those, the pointer
+/// (`PointerSystem`); Safari's tabs come from AppleScript (`ScriptSystem`). Chromium browsers and Electron apps
+/// describe their pages only once asked: ThumbFreeMac's `FocusedField.Reader.startWaking()` (the host's) asks each app
+/// that comes to the front, and a scan asks an app this desktop hasn't asked yet (`wake`).
 ///
 /// The core calls it from its own task, one call at a time (`InteractionController`'s contract), never on the main
 /// thread. Accessibility work runs off the caller's thread with the C#'s time limits; every call to an app waits at
@@ -16,7 +20,8 @@ import VoiceAssistantCore
 ///
 /// The window handle is the window server's window number (CGWindowID), so two windows of one app are told apart, as
 /// HWNDs are; `WindowInfo.processName` is the bundle identifier of the app taking the keys and `appName` its name as
-/// macOS shows it.
+/// macOS shows it. Rectangles (`ScreenRect`) are in points from the top left of the main display, y down, as
+/// Accessibility gives them.
 public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     /// The time limit for Accessibility work that the core awaits (C#'s `UiaTimeout`).
     static let accessibilityTimeout: TimeInterval = 4
@@ -27,43 +32,69 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     let workspace: WorkspaceSystem
     let typer: PasteTyper
     let presser: KeyPresser
+    let pointer: PointerSystem
+    let scripts: ScriptSystem
     let permissions: Permissions
     let clock: DesktopClock
     let ownProcess: pid_t
+
+    /// The elements and tabs scans handed out (`MacDesktop+Navigation`, `MacDesktop+Tabs`).
+    let registry = ElementRegistry()
+
+    /// When this desktop asked each app to describe its pages (`MacDesktop.wake`), by process and bundle identifier.
+    let woken = WakeTimes()
+
+    /// The apps that didn't answer when asked to describe their pages, so the log says it once.
+    let unansweredWakes = KeySet()
+
+    /// This app's windows that clicks go through (the number badges' panel); its other windows cover a click point.
+    let clickThrough: ClickThroughWindows
+
+    /// The browsers whose Automation permission is being asked for (`MacDesktop+Tabs`).
+    let automationAsks = KeySet()
     private let insertMethod: @Sendable () -> String
     private let logger: (@Sendable (String) -> Void)?
 
     /// The Mac itself.
     /// - Parameters:
+    ///   - scripts: AppleScript, for Safari's tabs.
     ///   - insertMethod: The insertMethod setting, read before each typing: "Paste", or "Type" for key events (C#'s
     ///     `WindowsDesktop.InsertMethod`).
     ///   - log: Where log lines go.
     public convenience init(
-        insertMethod: @escaping @Sendable () -> String = { "Paste" }, log: (@Sendable (String) -> Void)? = nil
+        scripts: ScriptSystem = SystemScripts(), insertMethod: @escaping @Sendable () -> String = { "Paste" },
+        log: (@Sendable (String) -> Void)? = nil
     ) {
         let permissions = Permissions()
         let keys = PasteTyper.SystemKeys(permissions: permissions)
         self.init(
             ax: SystemAX(), workspace: SystemWorkspace(), typer: PasteTyper(keys: keys), keys: keys,
-            layout: SystemKeyLayout(), permissions: permissions, insertMethod: insertMethod, log: log)
+            layout: SystemKeyLayout(), scripts: scripts, permissions: permissions, insertMethod: insertMethod, log: log)
     }
 
     /// - Parameters:
     ///   - typer: Types text; it should send its keys with `keys`.
     ///   - keys: Where chords go.
+    ///   - pointer: Where a click lands, and real clicks.
+    ///   - scripts: AppleScript, for Safari's tabs.
+    ///   - clickThrough: This app's windows that clicks go through (`MarkerOverlay`'s).
     ///   - ownProcess: This app's process, which is never a window to act on.
     public init(
         ax: AXSystem, workspace: WorkspaceSystem, typer: PasteTyper, keys: PasteTyper.Keys, layout: KeyLayout,
+        pointer: PointerSystem = SystemPointer(), scripts: ScriptSystem = SystemScripts(),
         permissions: Permissions = Permissions(), clock: DesktopClock = .system,
-        ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier,
+        clickThrough: ClickThroughWindows = .shared, ownProcess: pid_t = ProcessInfo.processInfo.processIdentifier,
         insertMethod: @escaping @Sendable () -> String = { "Paste" }, log: (@Sendable (String) -> Void)? = nil
     ) {
         self.ax = ax
         self.workspace = workspace
         self.typer = typer
         presser = KeyPresser(keys: keys, layout: layout)
+        self.pointer = pointer
+        self.scripts = scripts
         self.permissions = permissions
         self.clock = clock
+        self.clickThrough = clickThrough
         self.ownProcess = ownProcess
         self.insertMethod = insertMethod
         logger = log
@@ -87,13 +118,34 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
     // MARK: The window in front
 
     /// The app taking the keys (the system-wide AXFocusedApplication, so Spotlight's and Raycast's panels count) and
-    /// its focused window: nil when that's this app, or when Accessibility can't tell. An app without a window comes
-    /// back with handle 0 and no title.
+    /// its focused window: nil when that's this app, or when Accessibility can't tell. When Accessibility answers that
+    /// no app has the keys, the app in front, if it's a regular app, and its focused window, else its main one: some
+    /// apps answer only for themselves (Chrome just started, on GitHub's runner), as `focus()` finds. An app without a
+    /// window comes back with handle 0 and no title.
     public func foregroundWindow() -> WindowInfo? {
-        guard let app = try? ax.focusedApplication(), let pid = try? ax.processIdentifier(of: app), pid != ownProcess
-        else { return nil }
-        let window = try? ax.element(kAXFocusedWindowAttribute, of: app)
-        return windowInfo(pid, window)
+        let focused: AnyObject?
+        do {
+            focused = try ax.focusedApplication()
+        } catch {
+            return nil
+        }
+
+        if let app = focused {
+            guard let pid = try? ax.processIdentifier(of: app), pid != ownProcess else { return nil }
+            return windowInfo(pid, try? ax.element(kAXFocusedWindowAttribute, of: app))
+        }
+
+        guard let front = workspace.frontmostApp(), front.isRegular, front.processIdentifier != ownProcess else {
+            return nil
+        }
+
+        let app = ax.application(front.processIdentifier)
+        var window: AnyObject? = try? ax.element(kAXFocusedWindowAttribute, of: app)
+        if window == nil {
+            window = try? ax.element(kAXMainWindowAttribute, of: app)
+        }
+
+        return windowInfo(front.processIdentifier, window)
     }
 
     /// The window as the core knows it: its number, its app's process and bundle identifier, its title and its app's
@@ -167,11 +219,11 @@ public final class MacDesktop: JarvisDesktop, @unchecked Sendable {
 
     /// Types `text` with each line break as `newLineKeys`, a chord of the Mac's grammar (⇧↩ in chat apps, where ↩
     /// sends), as ThumbFreeMac's `PasteTyper.type` types a dictation: each line pasted (or typed with keys) and the
-    /// new-line keys pressed between lines, each once held modifier keys are let go and secure input is checked. While
-    /// a password is being typed somewhere, or Terminal's Secure Keyboard Entry is on, nothing goes out, not even the
+    /// new-line keys pressed between lines, each once held modifier keys are let go and secure input is checked. The
+    /// core sends every typing with line breaks here, and the "new line" and "new paragraph" commands. While a
+    /// password is being typed somewhere, or Terminal's Secure Keyboard Entry is on, nothing goes out, not even the
     /// new-line keys of a text that starts with a line break, and PasteTyper's `Failure.secureInput` comes through as
-    /// it is. Keys asked for by name (`pressKeys`) still go out then, as on Windows; the core presses a typing's line
-    /// breaks with `pressKeys` today, which can't tell them from "press enter", so its typing belongs here.
+    /// it is. Keys asked for by name (`pressKeys`) still go out then, as on Windows.
     public func typeText(_ text: String, newLineKeys: String) throws {
         let newLine = try presser.resolve(newLineKeys)
         useInsertMethod()

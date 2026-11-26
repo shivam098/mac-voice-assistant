@@ -65,21 +65,53 @@ public protocol AXSystem: AnyObject {
     /// The same element (CFEqual).
     func isSame(_ element: AnyObject, as other: AnyObject) -> Bool
 
-    /// An element's role, subrole and children in one call (AXUIElementCopyMultipleAttributeValues), for walking a
-    /// window's elements.
+    /// What one call (AXUIElementCopyMultipleAttributeValues) reads about an element, for walking a window's
+    /// elements: its role, subrole and children, title and description, whether it's enabled, and its frame. An element
+    /// that has gone from the screen has none of them.
     func node(_ element: AnyObject) throws -> AXNode
+
+    /// The actions the element can do (AXUIElementCopyActionNames): kAXPressAction, AXScrollToVisible…
+    func actions(of element: AnyObject) throws -> [String]
+
+    /// The innermost element of the app's windows at a point of the screen (AXUIElementCopyElementAtPosition on the
+    /// app's element), as UI Automation's FromPoint finds it; nil when there's none. The point is in Accessibility's
+    /// coordinates.
+    func element(at point: CGPoint, of application: AnyObject) throws -> AnyObject?
+
+    /// The innermost element at a point of the screen in whichever app's window a click there would land
+    /// (AXUIElementCopyElementAtPosition on the system-wide element); nil when there's none.
+    func elementAtPoint(_ point: CGPoint) throws -> AnyObject?
 }
 
-/// An element's role, subrole and children.
+/// What one call reads about an element (`AXSystem.node`).
 public struct AXNode {
     public var role: String?
     public var subrole: String?
     public var children: [AnyObject]
 
-    public init(role: String?, subrole: String? = nil, children: [AnyObject] = []) {
+    /// kAXTitleAttribute.
+    public var title: String?
+
+    /// kAXDescriptionAttribute: accessibilityLabel, a web page's aria-label.
+    public var label: String?
+
+    /// kAXEnabledAttribute; nil when the element doesn't say.
+    public var enabled: Bool?
+
+    /// kAXPositionAttribute and kAXSizeAttribute: in points, from the top left of the main display, y down.
+    public var frame: CGRect?
+
+    public init(
+        role: String?, subrole: String? = nil, children: [AnyObject] = [], title: String? = nil, label: String? = nil,
+        enabled: Bool? = nil, frame: CGRect? = nil
+    ) {
         self.role = role
         self.subrole = subrole
         self.children = children
+        self.title = title
+        self.label = label
+        self.enabled = enabled
+        self.frame = frame
     }
 }
 
@@ -102,7 +134,7 @@ public enum AXOutcome: Equatable, Sendable {
     case noAnswer
 }
 
-/// Attribute and role names that HIServices has no constant for, as WebKit and Chromium name them.
+/// Attribute, role and action names that HIServices has no constant for, as WebKit and Chromium name them.
 enum AXName {
     static let placeholder = "AXPlaceholderValue"
     static let identifier = "AXIdentifier"
@@ -111,6 +143,9 @@ enum AXName {
     static let editableAncestor = "AXEditableAncestor"
     static let webArea = "AXWebArea"
     static let link = "AXLink"
+    static let popover = "AXPopover"
+    static let tabButton = "AXTabButton"
+    static let scrollToVisible = "AXScrollToVisible"
 }
 
 /// The Accessibility API itself. Every call waits at most `timeout` for the app's answer.
@@ -241,10 +276,18 @@ public final class SystemAX: AXSystem, @unchecked Sendable {
     }
 
     public func node(_ element: AnyObject) throws -> AXNode {
-        let names = [kAXRoleAttribute, kAXSubroleAttribute, kAXChildrenAttribute] as CFArray
+        let names = [
+            kAXRoleAttribute, kAXSubroleAttribute, kAXChildrenAttribute, kAXTitleAttribute, kAXDescriptionAttribute,
+            kAXEnabledAttribute, kAXPositionAttribute, kAXSizeAttribute,
+        ] as CFArray
         var values: CFArray?
         let error = AXUIElementCopyMultipleAttributeValues(Self.ax(element), names, [], &values)
-        guard try Self.answered(error), let list = values as? [AnyObject], list.count == 3 else {
+        if error == .invalidUIElement {
+            // Gone from the screen: nothing to read or walk into.
+            return AXNode(role: nil)
+        }
+
+        guard try Self.answered(error), let list = values as? [AnyObject], list.count == 8 else {
             return AXNode(role: nil)
         }
 
@@ -255,7 +298,35 @@ public final class SystemAX: AXSystem, @unchecked Sendable {
         }
 
         let children = (found[2] as? [AnyObject])?.filter { CFGetTypeID($0) == AXUIElementGetTypeID() } ?? []
-        return AXNode(role: found[0] as? String, subrole: found[1] as? String, children: children)
+        var frame: CGRect?
+        if let position = Self.asAXValue(found[6], .cgPoint), let size = Self.asAXValue(found[7], .cgSize) {
+            var rect = CGRect.zero
+            if AXValueGetValue(position, .cgPoint, &rect.origin), AXValueGetValue(size, .cgSize, &rect.size) {
+                frame = rect
+            }
+        }
+
+        return AXNode(
+            role: found[0] as? String, subrole: found[1] as? String, children: children, title: found[3] as? String,
+            label: found[4] as? String, enabled: (found[5] as? NSNumber)?.boolValue, frame: frame)
+    }
+
+    public func actions(of element: AnyObject) throws -> [String] {
+        var names: CFArray?
+        let error = AXUIElementCopyActionNames(Self.ax(element), &names)
+        guard try Self.answered(error), let list = names as? [String] else { return [] }
+        return list
+    }
+
+    public func element(at point: CGPoint, of application: AnyObject) throws -> AnyObject? {
+        var found: AXUIElement?
+        let error = AXUIElementCopyElementAtPosition(Self.ax(application), Float(point.x), Float(point.y), &found)
+        guard try Self.answered(error), let found else { return nil }
+        return found
+    }
+
+    public func elementAtPoint(_ point: CGPoint) throws -> AnyObject? {
+        try element(at: point, of: systemWide)
     }
 
     /// `_AXUIElementGetWindow`: HIServices' own way from a window's element to its CGWindowID, which window managers
@@ -306,10 +377,12 @@ public final class SystemAX: AXSystem, @unchecked Sendable {
 
     /// A point, size or range attribute: an AXValue of `type`.
     private func axValue(_ attribute: String, of element: AnyObject, _ type: AXValueType) throws -> AXValue? {
-        guard let value = try copy(attribute, of: element), CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
-        }
+        try Self.asAXValue(copy(attribute, of: element), type)
+    }
 
+    /// `value` as an AXValue of `type`; nil when it's something else.
+    private static func asAXValue(_ value: AnyObject?, _ type: AXValueType) -> AXValue? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         let axValue = unsafeBitCast(value, to: AXValue.self)
         return AXValueGetType(axValue) == type ? axValue : nil
     }

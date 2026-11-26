@@ -26,6 +26,12 @@ extension AXSystem {
             }
         }
 
+        return try labelName(of: element)
+    }
+
+    /// The name of an element that has neither title nor description: the text of the label that names it, else its
+    /// placeholder; empty when it has neither.
+    func labelName(of element: AnyObject) throws -> String {
         if let label = try self.element(kAXTitleUIElementAttribute, of: element) {
             for attribute in [kAXValueAttribute, kAXTitleAttribute] {
                 if let text = try string(attribute, of: label), !DotNet.isNullOrWhiteSpace(text) {
@@ -99,10 +105,23 @@ extension AXSystem {
 
     /// The element's frame as the core's `ScreenRect`, in points from the top left of the main display.
     func screenRect(_ element: AnyObject) throws -> ScreenRect? {
-        guard let frame = try frame(of: element) else { return nil }
-        return ScreenRect(
-            x: Double(frame.origin.x), y: Double(frame.origin.y), width: Double(frame.width),
-            height: Double(frame.height))
+        try frame(of: element).map { ScreenRect($0) }
+    }
+}
+
+extension ScreenRect {
+    /// A frame in Accessibility's coordinates (points from the top left of the main display, y down).
+    init(_ rect: CGRect) {
+        self.init(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height))
+    }
+
+    /// The part both rectangles cover; empty (no width or height) when they don't meet.
+    func intersection(_ other: ScreenRect) -> ScreenRect {
+        let left = max(x, other.x)
+        let top = max(y, other.y)
+        let width = max(0, min(right, other.right) - left)
+        let height = max(0, min(bottom, other.bottom) - top)
+        return ScreenRect(x: left, y: top, width: width, height: height)
     }
 }
 

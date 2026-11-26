@@ -16,58 +16,32 @@ final class AccessibilityIntegrationTests: XCTestCase {
         name: "TextEdit", launch: "com.apple.TextEdit", processNames: ["com.apple.TextEdit"], newLineKeys: "Enter",
         textArea: "Largest")
 
-    /// TextEdit's settings these tests set, and put back afterwards: a new document when it starts, not its Open
-    /// panel, and no windows from before restored (a document an earlier test typed into).
-    private static let textEditSettings = [
-        (key: "NSShowAppCentricOpenPanelInsteadOfUntitledFile", value: false),
-        (key: "ApplePersistenceIgnoreState", value: true),
-    ]
-
     private var desktop: MacDesktop!
 
-    /// What those settings were (`defaults write`'s type and value), nil for one that wasn't set.
+    /// What TextEdit's settings these tests set (`Integration.textEditSettings`) were.
     private var previousSettings: [(key: String, value: [String]?)] = []
 
     override func setUp() async throws {
         try await super.setUp()
-        let environment = ProcessInfo.processInfo.environment
-        try XCTSkipUnless(
-            environment["GITHUB_ACTIONS"] == "true" || environment["VOICE_ASSISTANT_AX_TESTS"] == "1",
-            "Opens, types into and quits TextEdit: set VOICE_ASSISTANT_AX_TESTS=1 to run it here.")
-        try XCTSkipUnless(
-            AXIsProcessTrusted() && CGPreflightPostEventAccess(),
-            "Needs Accessibility and the permission to post events for the test process.")
-
-        previousSettings = Self.textEditSettings.map { (key: $0.key, value: Self.textEditSetting($0.key)) }
-        for setting in Self.textEditSettings {
-            Self.run(
-                "/usr/bin/defaults", "write", "com.apple.TextEdit", setting.key, "-bool",
-                setting.value ? "true" : "false")
-        }
-
-        await Self.quitTextEdit()
-        desktop = MacDesktop(insertMethod: { "Type" }, log: { Self.report("desktop: \($0)") })
+        try Integration.skipUnlessAllowed()
+        previousSettings = Integration.setTextEditSettings()
+        await Integration.quit("com.apple.TextEdit")
+        desktop = MacDesktop(insertMethod: { "Type" }, log: { Integration.report("desktop: \($0)") })
     }
 
     override func tearDown() async throws {
         if desktop != nil {
-            await Self.quitTextEdit()
-            for setting in previousSettings {
-                if let value = setting.value {
-                    Self.run(["/usr/bin/defaults", "write", "com.apple.TextEdit", setting.key] + value)
-                } else {
-                    Self.run(["/usr/bin/defaults", "delete", "com.apple.TextEdit", setting.key])
-                }
-            }
+            await Integration.quit("com.apple.TextEdit")
+            Integration.restoreTextEditSettings(previousSettings)
         }
 
         try await super.tearDown()
     }
 
     func testOpensTextEditTypesAndEdits() async throws {
-        Self.report("before TextEdit: system-wide focused application \(Self.systemWideFocus())")
+        Integration.report("before TextEdit: system-wide focused application \(Self.systemWideFocus())")
         let opened = try await desktop.openOrActivate(Self.textEdit, newWindow: false)
-        Self.report("after TextEdit: system-wide focused application \(Self.systemWideFocus())")
+        Integration.report("after TextEdit: system-wide focused application \(Self.systemWideFocus())")
         XCTAssertTrue(opened.success, opened.message)
         let window = try XCTUnwrap(opened.window, opened.message)
         let front = try XCTUnwrap(desktop.foregroundWindow(), "no window in front")
@@ -88,11 +62,13 @@ final class AccessibilityIntegrationTests: XCTestCase {
         try await Self.settle()
         let empty = try await desktop.prepareTextTarget(front, profile: Self.textEdit)
         XCTAssertEqual(false, empty.hasTrailingText)
-        XCTAssertEqual(CaretText(before: "", caretKnown: true), desktop.readTextBeforeCaret())
+        let nothing = try await caretText { $0?.before == "" }
+        XCTAssertEqual(CaretText(before: "", caretKnown: true), nothing)
 
         try desktop.typeText("Hello from Jarvis")
         try await Self.settle()
-        var caret = try XCTUnwrap(desktop.readTextBeforeCaret(), "text before the cursor")
+        let typed = try await caretText { $0?.before == "Hello from Jarvis" }
+        var caret = try XCTUnwrap(typed, "text before the cursor")
         XCTAssertEqual(CaretText(before: "Hello from Jarvis", caretKnown: true), caret)
         XCTAssertEqual(true, desktop.focusedTextEndsWithNonWhitespace())
         let focus = try XCTUnwrap(desktop.describeFocus(), "the focus")
@@ -104,29 +80,34 @@ final class AccessibilityIntegrationTests: XCTestCase {
         try desktop.backspace(6)
         try desktop.pressKeysRepeated("Left", 5)
         try await Self.settle()
-        caret = try XCTUnwrap(desktop.readTextBeforeCaret())
+        let moved = try await caretText { $0?.before == "Hello " }
+        caret = try XCTUnwrap(moved)
         XCTAssertEqual("Hello ", caret.before)
         XCTAssertFalse(caret.hasSelection)
 
         try desktop.pressKeysRepeated("Shift+Left", 3)
         try await Self.settle()
-        XCTAssertEqual(true, desktop.readTextBeforeCaret()?.hasSelection)
+        let selecting = try await caretText { $0?.hasSelection == true }
+        XCTAssertEqual(true, selecting?.hasSelection)
 
         try desktop.pressKeys("Cmd+A")
         try desktop.pressKeys("Right")
         try await Self.settle()
-        XCTAssertEqual(CaretText(before: "Hello from ", caretKnown: true), desktop.readTextBeforeCaret())
+        let ended = try await caretText { $0?.before == "Hello from " && $0?.hasSelection == false }
+        XCTAssertEqual(CaretText(before: "Hello from ", caretKnown: true), ended)
         XCTAssertEqual(false, desktop.focusedTextEndsWithNonWhitespace())
 
         try desktop.pressKeys("Enter")
         try desktop.typeText("Second line")
         try await Self.settle()
-        XCTAssertEqual("Hello from \nSecond line", desktop.readTextBeforeCaret()?.before)
+        let second = try await caretText { $0?.before == "Hello from \nSecond line" }
+        XCTAssertEqual("Hello from \nSecond line", second?.before)
 
         // A typing with a line break: TextEdit's new-line key between the lines.
         try desktop.typeText("\nThird", newLineKeys: Self.textEdit.newLineKeys)
         try await Self.settle()
-        XCTAssertEqual("Hello from \nSecond line\nThird", desktop.readTextBeforeCaret()?.before)
+        let third = try await caretText { $0?.before == "Hello from \nSecond line\nThird" }
+        XCTAssertEqual("Hello from \nSecond line\nThird", third?.before)
 
         XCTAssertEqual(.noButton, desktop.describeDefaultButton())
         try desktop.pressKeys("Cmd+S")
@@ -137,7 +118,7 @@ final class AccessibilityIntegrationTests: XCTestCase {
         }
 
         // The save panel's buttons are another process's: its sheet is found, its default button can't be read.
-        Self.report("default button with the Save sheet open: \(Self.describe(button))")
+        Integration.report("default button with the Save sheet open: \(Self.describe(button))")
         XCTAssertNotEqual(.noButton, button)
         try desktop.pressKeys("Esc")
 
@@ -179,7 +160,7 @@ final class AccessibilityIntegrationTests: XCTestCase {
         let searched = try await desktop.focusSearchBox(window)
         XCTAssertTrue(searched.success, searched.message)
         XCTAssertFalse(desktop.ax.isSame(try XCTUnwrap(desktop.focus()), as: area))
-        Self.report("the find bar's field is named: \(!(desktop.describeFocus()?.name ?? "").isEmpty)")
+        Integration.report("the find bar's field is named: \(!(desktop.describeFocus()?.name ?? "").isEmpty)")
     }
 
     /// The window fills the part of the screen apps use.
@@ -194,20 +175,20 @@ final class AccessibilityIntegrationTests: XCTestCase {
         let element = try XCTUnwrap(desktop.windowElement(window))
         let frame = try XCTUnwrap(desktop.ax.frame(of: element))
         let screen = try XCTUnwrap(screens.first { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) })
-        Self.report("zoomed: window \(frame.integral), usable part of its screen \(screen.visibleFrame.integral)")
+        Integration.report("zoomed: window \(frame.integral), usable part of its screen \(screen.visibleFrame.integral)")
         XCTAssertEqual(screen.visibleFrame.width, frame.width, accuracy: 2)
         XCTAssertEqual(screen.visibleFrame.minY, frame.minY, accuracy: 2)
     }
 
     func testFindsTheInstalledApps() {
         let apps = desktop.discoverApps()
-        Self.report("installed apps found: \(apps.count)")
+        Integration.report("installed apps found: \(apps.count)")
         let workspace = SystemWorkspace()
         let safari = workspace.folderItems(URL(fileURLWithPath: "/Applications", isDirectory: true))
             .first { $0.url.lastPathComponent == "Safari.app" }
         let identifier = safari.flatMap { workspace.appBundle(at: $0.url)?.bundleIdentifier } ?? "none"
-        Self.report("/Applications lists Safari.app: \(safari != nil), its bundle identifier: \(identifier)")
-        Self.report("Safari's entry starts \(apps.first { $0.name == "Safari" }?.launch ?? "nothing")")
+        Integration.report("/Applications lists Safari.app: \(safari != nil), its bundle identifier: \(identifier)")
+        Integration.report("Safari's entry starts \(apps.first { $0.name == "Safari" }?.launch ?? "nothing")")
         let launches = Set(apps.map(\.launch))
         for app in ["com.apple.TextEdit", "com.apple.Safari", "com.apple.finder", "com.apple.Terminal"] {
             XCTAssertTrue(launches.contains(app), app)
@@ -233,19 +214,26 @@ final class AccessibilityIntegrationTests: XCTestCase {
         }
 
         XCTAssertEqual(.named("Erase"), button)
-        Self.report("the dialog's app in front: \(desktop.foregroundWindow()?.processName ?? "none")")
+        Integration.report("the dialog's app in front: \(desktop.foregroundWindow()?.processName ?? "none")")
     }
 
     // MARK: Helpers
 
-    static func report(_ line: String) {
-        print("AX test: \(line)")
-        fflush(stdout)
-    }
-
     /// Time for TextEdit to take the keys.
     private static func settle() async throws {
         try await Task.sleep(nanoseconds: 500_000_000)
+    }
+
+    /// The text before the cursor once `done` says it's what was expected, read every 0.1 s for up to 2 s: TextEdit
+    /// can take a moment to show what was typed. The last read when it never is.
+    private func caretText(until done: (CaretText?) -> Bool) async throws -> CaretText? {
+        var caret = desktop.readTextBeforeCaret()
+        for _ in 0..<20 where !done(caret) {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            caret = desktop.readTextBeforeCaret()
+        }
+
+        return caret
     }
 
     private static func systemWideFocus() -> String {
@@ -262,64 +250,5 @@ final class AccessibilityIntegrationTests: XCTestCase {
         case .unknown: return "unknown"
         case .named(let name): return name.isEmpty ? "unnamed" : "named \(name)"
         }
-    }
-
-    private static func quitTextEdit() async {
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit") {
-            app.forceTerminate()
-        }
-
-        for _ in 0..<50 where !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit")
-            .allSatisfy(\.isTerminated) {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-    }
-
-    private static func run(_ tool: String, _ arguments: String...) {
-        run([tool] + arguments)
-    }
-
-    private static func run(_ command: [String]) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command[0])
-        process.arguments = Array(command.dropFirst())
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            report("couldn't run \(command[0])")
-        }
-    }
-
-    /// A TextEdit setting as `defaults write` takes it back (its type and value), or nil when it isn't set.
-    private static func textEditSetting(_ key: String) -> [String]? {
-        guard let value = output("/usr/bin/defaults", "read", "com.apple.TextEdit", key),
-              let type = output("/usr/bin/defaults", "read-type", "com.apple.TextEdit", key) else { return nil }
-        switch type {
-        case "Type is boolean": return ["-bool", value == "1" ? "true" : "false"]
-        case "Type is integer": return ["-int", value]
-        case "Type is float": return ["-float", value]
-        default: return ["-string", value]
-        }
-    }
-
-    /// What a tool prints, trimmed; nil when it fails (`defaults read` of a setting that isn't there).
-    private static func output(_ tool: String, _ arguments: String...) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        let printed = Pipe()
-        process.standardOutput = printed
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let data = printed.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
