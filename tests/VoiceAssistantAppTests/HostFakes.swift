@@ -488,13 +488,16 @@ final class HostRig {
     /// - Parameters:
     ///   - present: The model files already on this Mac.
     ///   - prepare: Runs before the host is made, with its folders.
+    ///   - post: Where the host raises its events: `events` by default; the main thread for the app's UI. After
+    ///     `prepare`, so `HostRig { paths in … }` gives `prepare`.
     init(
         settings: AppSettings = HostRig.settings(),
         present: Set<String> = [FakeModels.small, FakeModels.vad],
         brain: FakeBrain? = nil,
         board: Board? = nil,
         persistMemory: Bool = true,
-        prepare: (AppPaths) -> Void = { _ in }
+        prepare: (AppPaths) -> Void = { _ in },
+        post: AssistantHost.Post? = nil
     ) {
         folder = TempFolder()
         paths = AppPaths(data: folder.path, logs: folder.file("logs"))
@@ -504,6 +507,7 @@ final class HostRig {
         let sounds = self.sounds
         let copied = copiedTexts
         let events = self.events
+        let onEvents: AssistantHost.Post = { events.async(execute: $0) }
         let parts = HostParts(
             desktop: desktop, microphone: microphone, speech: speech, models: models, brain: brain,
             makeSounds: { enabled in
@@ -514,7 +518,7 @@ final class HostRig {
             copyText: { text in copied.update { $0.append(text) } })
         host = AssistantHost(
             settings: settings, paths: paths, parts: parts, board: board, persistMemory: persistMemory,
-            post: { events.async(execute: $0) })
+            post: post ?? onEvents)
         log = HostLog(host)
     }
 

@@ -368,27 +368,9 @@ extension BrainStatus {
 
 /// The AI brain as the host, the self-test and Settings use it (C#'s `LlamaBrain`, with the AI brain members of
 /// `AssistantHost`): VoiceAssistantMac's `LlamaBrain` in the app, a fake in tests. It's also the model the controller
-/// asks (`BrainModel`).
-public protocol AssistantBrain: BrainModel {
-    /// What it's doing, for Settings and the menu.
-    var status: BrainStatus { get }
-
-    /// Settings offers the download: this Mac can run it, something is missing, and no download is running.
-    var canDownload: Bool { get }
-
-    /// Where its files go (Settings' "Open its folder").
-    var folder: String { get }
-
-    /// Bytes a download would fetch now.
-    var missingBytes: Int64 { get }
-
-    /// Downloads what's missing in the background, carrying on where a download stopped, then loads the model.
-    @discardableResult
-    func startDownload() -> Task<Void, Never>
-
-    /// Stops the download; the next one carries on where it stopped.
-    func cancelDownload()
-
+/// asks (`BrainModel`), and Settings' AI brain card drives it (`BrainControls`: its status, whether it can download,
+/// its folder, the bytes missing, and starting and stopping the download).
+public protocol AssistantBrain: BrainModel, BrainControls {
     /// Loads the model if it isn't loaded, and waits until it answers.
     func ensureReady() async throws
 

@@ -41,7 +41,11 @@ This page records the Mac decisions made since, the shape of the code, and the o
 - The window looks as on Windows and stays light whatever the Mac's appearance. Closing it hides it (the assistant
   keeps running in the menu bar), **Settings…** is ⌘, and **Quit Voice Assistant** is ⌘Q. Home adds a card for the
   permissions macOS hasn't given yet (the microphone, Accessibility, and Input Monitoring when the Fn key needs it),
-  whose buttons ask macOS, then open System Settings.
+  whose buttons ask macOS, then open System Settings. The window opens at Home when the app starts, unless it started
+  at login, and then too while a permission is missing.
+- What Windows says in tray balloons (a hotkey another app has, the Fn key the app can't see yet, ThumbFree running too,
+  a failed restart) shows in a balloon under the menu bar icon. While ThumbFree runs with the same key, the menu also
+  says so under its status line, until ThumbFree quits.
 
 ## Speech
 
@@ -133,6 +137,6 @@ guide explains each one, like ThumbFree's.
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
 | 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Next |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | UI part 1 (the menu bar, the pill and the reminder cards) is done and part 2 (the window: Home, Settings and What you can say) is in review, both drawn on CI; the idea board's page and the wiring are next |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | The menu bar, the pill, the reminder cards and the window (Home, Settings and What you can say) are done, drawn on CI and wired to the assistant, and the App workflow checks that the app starts into them; the idea board's page is next |
 | 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
 | 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization | |

@@ -19,9 +19,10 @@ In the app, the executable is `Voice Assistant.app/Contents/MacOS/VoiceAssistant
 `insertMethod`, the apps it knows), but uses an idea board in memory, saves nothing it learns, plays no sounds and
 doesn't open the microphone. It acts on the app in front and types there, so don't use the Mac while it runs.
 
-It shows none of the app's notices (`AppController.notice`, Windows' tray balloons), which the app replays to a UI that
-subscribes late; withdrawing one isn't announced to handlers already listening, so a UI shouldn't base a lasting banner
-on `notice` alone but on the specific events (`thumbFreeChanged`, the desktop's missing permissions).
+It shows none of the app's notices (`AppController.notice`, Windows' tray balloons), which the app's UI shows as
+balloons by the menu bar icon, replayed when the UI subscribes; withdrawing one isn't announced to handlers already
+listening, so the lasting warnings follow the specific events instead (`thumbFreeChanged` for the menu's ThumbFree
+warning, `permissionsChanged` for Home's "Permissions needed").
 
 The desktop needs Accessibility, which also lets it send keys. macOS asks it of whatever started the app: Terminal (or
 the runner on GitHub) when the executable is started directly, the app itself when it's opened with `open`. Without it,
@@ -154,8 +155,8 @@ in the job's summary, and the run's artifact, `self-test-results`, has each lab'
 - `expectfocus` asks the desktop's `describeFocus` for the focused control's name.
 - A Mac text box's line break is `\n` (Windows' is `\r`).
 - `typing <chunk> <delay>` does nothing: the Mac's typing has no such setting.
-- No pill or number badges are shown until the app's UI lands; Windows shows them so screenshots of a run show what a
-  user would see.
+- The self-test runs without the app's UI, so no pill or number badges are shown; Windows shows them so screenshots of
+  a run show what a user would see.
 - Without Accessibility the run stops at once with `!! missing permissions`; Windows needs no permission.
 - The output is written as the run goes; Windows writes it at the end.
 - The labs' `run.sh` scripts and `scripts/self-test.sh` take the place of Windows' `run.ps1` scripts, and add the

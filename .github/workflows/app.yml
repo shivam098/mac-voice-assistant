@@ -81,3 +81,15 @@ jobs:
           name: VoiceAssistant-dmg
           path: dist/VoiceAssistant-*.dmg
           if-no-files-found: error
+
+      # Opens the app as a person does and checks that it starts into its UI (scripts/launch-check.sh): the menu bar
+      # item, the pill and the window at Home. Its log and a screenshot of the runner's screen are the run's artifact.
+      - name: Launch the app
+        run: scripts/launch-check.sh "dist/Voice Assistant.app" "$RUNNER_TEMP/launch-check"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: launch-check
+          path: ${{ runner.temp }}/launch-check
+          if-no-files-found: warn
