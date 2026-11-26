@@ -103,11 +103,10 @@ public enum AppLogo {
         // The glyph's own box, in units: from the left wave's outer edge to the right one's, and from the capsule's
         // top to the base's bottom.
         let box = CGRect(x: 29, y: 48, width: 198, height: 165)
-        let scale = min(size.width / box.width, (size.height - 2) / box.height)
+        let scale: CGFloat = min(size.width / box.width, (size.height - 2) / box.height)
         // Windows' tray icon: a ring 15/32 of the icon across, with the dot, 11/32, in it.
-        let ring = CGRect(
-            x: size.width - size.height * 15 / 32, y: size.height * 17 / 32, width: size.height * 15 / 32,
-            height: size.height * 15 / 32)
+        let ringSize: CGFloat = size.height * 15 / 32
+        let ring = CGRect(x: size.width - ringSize, y: size.height * 17 / 32, width: ringSize, height: ringSize)
 
         context.saveGState()
         if dot != nil {
@@ -117,9 +116,9 @@ public enum AppLogo {
             context.clip(using: .evenOdd)
         }
 
-        context.translateBy(
-            x: (size.width - box.width * scale) / 2 - box.minX * scale,
-            y: (size.height - box.height * scale) / 2 - box.minY * scale)
+        let left: CGFloat = (size.width - box.width * scale) / 2 - box.minX * scale
+        let top: CGFloat = (size.height - box.height * scale) / 2 - box.minY * scale
+        context.translateBy(x: left, y: top)
         context.setFillColor(colour)
         context.addPath(capsule(scale))
         context.fillPath()
@@ -129,14 +128,15 @@ public enum AppLogo {
         context.setLineWidth(max(1.5, standWidth * scale))
         context.addPath(stand(scale))
         context.strokePath()
-        context.setStrokeColor(colour.copy(alpha: colour.alpha * wave.alpha) ?? colour)
+        let waveAlpha: CGFloat = colour.alpha * CGFloat(wave.alpha)
+        context.setStrokeColor(colour.copy(alpha: waveAlpha) ?? colour)
         context.setLineWidth(max(1.5, waveWidth * scale))
         context.addPath(waves(scale))
         context.strokePath()
         context.restoreGState()
 
         if let dot {
-            let inset = (ring.width - size.height * 11 / 32) / 2
+            let inset: CGFloat = (ringSize - size.height * 11 / 32) / 2
             context.setFillColor(dot.cgColor)
             context.fillEllipse(in: ring.insetBy(dx: inset, dy: inset))
         }
@@ -153,16 +153,18 @@ public enum AppLogo {
     /// GDI+'s DrawArc, which the script draws with: the part of the ellipse in `box` (in units) from `start` degrees
     /// for `sweep` degrees clockwise, y down, where an angle is a direction from the ellipse's centre.
     private static func arc(_ path: CGMutablePath, _ box: CGRect, from start: CGFloat, sweep: CGFloat, _ scale: CGFloat) {
-        let a = box.width / 2
-        let b = box.height / 2
+        let a: CGFloat = box.width / 2
+        let b: CGFloat = box.height / 2
         let steps = 48
         for step in 0...steps {
-            let angle = (start + sweep * CGFloat(step) / CGFloat(steps)) * .pi / 180
-            let along = b * cos(angle)
-            let across = a * sin(angle)
-            let radius = a * b / (along * along + across * across).squareRoot()
-            let point = CGPoint(
-                x: (box.midX + radius * cos(angle)) * scale, y: (box.midY + radius * sin(angle)) * scale)
+            let degrees: CGFloat = start + sweep * CGFloat(step) / CGFloat(steps)
+            let angle: CGFloat = degrees * CGFloat.pi / 180
+            let along: CGFloat = b * cos(angle)
+            let across: CGFloat = a * sin(angle)
+            let radius: CGFloat = a * b / (along * along + across * across).squareRoot()
+            let x: CGFloat = (box.midX + radius * cos(angle)) * scale
+            let y: CGFloat = (box.midY + radius * sin(angle)) * scale
+            let point = CGPoint(x: x, y: y)
             if step == 0 {
                 path.move(to: point)
             } else {

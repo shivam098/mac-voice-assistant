@@ -46,6 +46,9 @@ final class FloatingPanel: NSPanel {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
+        // The app is never active while you use the panels, and AppKit shows tooltips (SwiftUI's `.help`) only in an
+        // active app unless the window says otherwise: the pill's badge and minimize button have tooltips.
+        panel.allowsToolTipsWhenApplicationIsInactive = true
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

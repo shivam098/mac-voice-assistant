@@ -16,8 +16,8 @@ final class Balloon {
     func show(_ message: String, warning: Bool, anchor: CGRect?) {
         close()
         let view = BalloonView(message: message, warning: warning) { [weak self] in self?.dismiss() }
-        let screen = anchor.flatMap { icon in NSScreen.screens.first { $0.frame.intersects(icon) } }
-            ?? NSScreen.main ?? NSScreen.screens.first
+        let iconScreen: NSScreen? = anchor.flatMap { icon in NSScreen.screens.first { $0.frame.intersects(icon) } }
+        let screen: NSScreen? = iconScreen ?? NSScreen.main ?? NSScreen.screens.first
         guard let area = screen?.visibleFrame else { return }
         let panel = FloatingPanel.make(FirstClickHostingView(rootView: view))
         panel.setFrame(Self.frame(size: FloatingPanel.size(of: view), anchor: anchor, area: area), display: true)
@@ -57,8 +57,10 @@ final class Balloon {
     /// without an icon, at the area's top right.
     static func frame(size: CGSize, anchor: CGRect?, area: CGRect) -> CGRect {
         let margin: CGFloat = 8
-        var x = anchor.map { $0.midX - size.width / 2 } ?? area.maxX - size.width - margin
-        var y = (anchor.map { min($0.minY, area.maxY) } ?? area.maxY) - margin - size.height
+        let centred: CGFloat? = anchor.map { $0.midX - size.width / 2 }
+        let top: CGFloat = anchor.map { min($0.minY, area.maxY) } ?? area.maxY
+        var x: CGFloat = centred ?? area.maxX - size.width - margin
+        var y: CGFloat = top - margin - size.height
         x = min(max(x, area.minX + margin), area.maxX - size.width - margin)
         y = max(y, area.minY + margin)
         return CGRect(x: x.rounded(), y: y.rounded(), width: size.width, height: size.height)

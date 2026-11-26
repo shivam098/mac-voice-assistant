@@ -172,6 +172,7 @@ struct MenuPicture: View {
             text += glyph
         }
 
-        return text + (item.keyEquivalent == " " ? "Space" : item.keyEquivalent.uppercased())
+        let key = item.keyEquivalent == " " ? "Space" : item.keyEquivalent.uppercased()
+        return text + key
     }
 }

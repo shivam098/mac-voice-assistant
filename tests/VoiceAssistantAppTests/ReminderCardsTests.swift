@@ -81,8 +81,8 @@ final class ReminderCardsTests: XCTestCase {
         let screen = FakeScreen()
         let cards = screen.cards(for: board)
         cards.showDue()
-        XCTAssertEqual(
-            screen.made.map { $0.frame ?? .null }, ReminderCards.stack(screen.made.map(\.size), in: screen.area))
+        let frames: [CGRect] = screen.made.map { card -> CGRect in card.frame ?? CGRect.null }
+        XCTAssertEqual(frames, ReminderCards.stack(screen.made.map(\.size), in: screen.area))
 
         // The bottom one is answered: the others move down.
         screen.made[0].answer(.snooze)

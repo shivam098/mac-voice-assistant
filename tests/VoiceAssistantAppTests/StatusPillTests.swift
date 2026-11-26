@@ -291,6 +291,17 @@ final class StatusPillTests: XCTestCase {
         XCTAssertTrue(pill.isOnScreen, "the next change brings it back")
     }
 
+    /// AppKit shows tooltips only in the active app unless the window allows them, and the app is never active while the
+    /// pill, the cards or the balloon are used: their panels allow them, so the badge and the minimize button have
+    /// theirs, as on Windows.
+    @MainActor
+    func testTheFloatingPanelsShowTooltipsWhileTheAppIsInactive() {
+        _ = NSApplication.shared
+        let panel = FloatingPanel.make(FirstClickHostingView(rootView: StatusPill.MinimizeButton(action: {})))
+        XCTAssertTrue(panel.allowsToolTipsWhenApplicationIsInactive)
+        XCTAssertFalse(panel.canBecomeKey, "and they never take the keyboard")
+    }
+
     private func assertBars(_ expected: [Double], _ pill: StatusPill.Model, line: UInt = #line) throws {
         let bars = try XCTUnwrap(pill.display.bars, line: line)
         XCTAssertEqual(expected.count, bars.count, line: line)

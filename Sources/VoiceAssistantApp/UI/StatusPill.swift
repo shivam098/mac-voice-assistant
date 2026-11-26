@@ -189,7 +189,8 @@ public enum StatusPill {
 
             // Rise at once, fall back gently, like a VU meter.
             let now = Double(level)
-            self.level = now > self.level ? now : self.level * 0.6 + now * 0.4
+            let falling: Double = self.level * 0.6 + now * 0.4
+            self.level = now > self.level ? now : falling
             bars = Self.heights(self.level, jitter: jitter)
         }
 
@@ -199,9 +200,9 @@ public enum StatusPill {
             showMode(update.mode, activity: dictating ? activity : nil)
             message = update.message.isEmpty ? nil : update.message
             messageKind = update.kind
-            heard = update.heard.flatMap { $0.isEmpty ? nil : "Heard: “\($0)”" }
+            heard = update.heard.flatMap { (words: String) -> String? in words.isEmpty ? nil : "Heard: “\(words)”" }
             // The place shows with the message that put the assistant there, so it is never stale.
-            place = update.place.flatMap { $0.isEmpty ? nil : "📍 " + $0 }
+            place = update.place.flatMap { (spot: String) -> String? in spot.isEmpty ? nil : "📍 \(spot)" }
             updateVisibility()
         }
 
@@ -283,20 +284,18 @@ public enum StatusPill {
             case .info: colour = .text
             }
 
+            // Each part on its own, so the call below stays quick to type-check.
+            let dots: String? = transcribing ? String(repeating: ".", count: dotCount) : nil
+            let shownDot: Colour? = listening ? nil : dot
+            let shownBars: [Double]? = listening ? bars : nil
+            let language: String = accurate ? "HI + EN · accurate" : "HI + EN"
+            let badge: String? = hinglish ? language : nil
+            let previewOpacity: Double = transcribing ? 0.6 : 1
+            let hint: String? = listening ? "\(keyName) to finish · Esc to cancel" : nil
             return Display(
-                mode: text,
-                dots: transcribing ? String(repeating: ".", count: dotCount) : nil,
-                dot: listening ? nil : dot,
-                dotPulses: transcribing,
-                bars: listening ? bars : nil,
-                badge: hinglish ? (accurate ? "HI + EN · accurate" : "HI + EN") : nil,
-                place: place,
-                preview: preview,
-                previewOpacity: transcribing ? 0.6 : 1,
-                hint: listening ? "\(keyName) to finish · Esc to cancel" : nil,
-                message: message,
-                messageColour: colour,
-                heard: heard)
+                mode: text, dots: dots, dot: shownDot, dotPulses: transcribing, bars: shownBars, badge: badge,
+                place: place, preview: preview, previewOpacity: previewOpacity, hint: hint, message: message,
+                messageColour: colour, heard: heard)
         }
 
         /// Always on screen unless minimized; minimized, only while busy (Windows' `UpdateVisibility`).
@@ -307,10 +306,14 @@ public enum StatusPill {
         /// The bars' heights for `level`: 4 points, up to 18 for the middle one at full level, each wobbling by up to
         /// 20% once there's sound (Windows' `SetBars`; ThumbFreeMac `Pill.Model.heights`, which isn't public).
         static func heights(_ level: Double, jitter: () -> Double) -> [Double] {
-            barWeights.map { weight in
-                let wobble = level > 0.05 ? 0.8 + jitter() * 0.4 : 1
-                return 4 + 14 * min(max(level * weight * wobble, 0), 1)
+            var values: [Double] = []
+            for weight in barWeights {
+                let wobble: Double = level > 0.05 ? 0.8 + jitter() * 0.4 : 1
+                let height: Double = min(max(level * weight * wobble, 0), 1)
+                values.append(4 + 14 * height)
             }
+
+            return values
         }
 
         /// The last `previewLimit` UTF-16 units after "…", from the first word that starts in them (Windows'

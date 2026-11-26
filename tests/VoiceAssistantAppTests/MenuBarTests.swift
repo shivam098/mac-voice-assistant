@@ -30,11 +30,11 @@ final class MenuBarTests: XCTestCase {
             ])
 
         // The text that couldn't be typed is offered while there's some ("The text is in the menu bar.").
-        recorder.state.untypedText = "Call me at 4 PM."
+        recorder.state.hasUntypedText = true
         menu.menuNeedsUpdate(menu.menu)
         XCTAssertEqual(
             Array(Self.shown(menu)[6...7]), ["Dictation language (⌃⇧H)", "Copy text that wasn't typed"])
-        recorder.state.untypedText = ""
+        recorder.state.hasUntypedText = false
         menu.prepare()
         XCTAssertTrue(menu.copyUntyped.isHidden)
 
@@ -69,8 +69,7 @@ final class MenuBarTests: XCTestCase {
     func testEachItemDoesWhatItSaysAndTheTicksFollowTheApp() {
         let recorder = MenuRecorder()
         recorder.state = MenuState(
-            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: false,
-            untypedText: "Call me at 4 PM.")
+            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: false, hasUntypedText: true)
         let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: recorder.actions)
         XCTAssertEqual([menu.english, menu.hinglish, menu.hinglishAccurate].map(\.state), [.off, .on, .off])
         XCTAssertEqual(menu.showPill.state, .on)

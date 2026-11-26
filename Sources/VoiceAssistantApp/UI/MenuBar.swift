@@ -28,19 +28,20 @@ public struct MenuState: Equatable, Sendable {
     public var pillAlwaysShown: Bool
     /// "Start when I log in" is on.
     public var startsAtLogin: Bool
-    /// The dictated text that couldn't be typed, kept for the menu (the interaction controller's `untypedText`; the
-    /// pill said "The text is in the menu bar."). "Copy text that wasn't typed" shows only while there's some.
-    public var untypedText: String?
+    /// There's dictated text that couldn't be typed (the pill said "The text is in the menu bar."), as the assistant
+    /// host's `untypedTextChanged` last said: "Copy text that wasn't typed" shows only then. The menu never holds the
+    /// text itself.
+    public var hasUntypedText: Bool
 
     public init(
         hinglish: Bool = false, accurate: Bool = false, pillAlwaysShown: Bool = true, startsAtLogin: Bool = false,
-        untypedText: String? = nil
+        hasUntypedText: Bool = false
     ) {
         self.hinglish = hinglish
         self.accurate = accurate
         self.pillAlwaysShown = pillAlwaysShown
         self.startsAtLogin = startsAtLogin
-        self.untypedText = untypedText
+        self.hasUntypedText = hasUntypedText
     }
 }
 
@@ -54,7 +55,7 @@ public struct MenuActions {
     public var pasteLast: @MainActor () -> Void
     /// English, or Hindi + English with the fast or the accurate model (the host's `SetDictationLanguage`).
     public var setDictationLanguage: @MainActor (_ hinglish: Bool, _ accurate: Bool) -> Void
-    /// Copies the text that wasn't typed (`MenuState.untypedText`) and forgets it: the host's `CopyUntypedText`.
+    /// Copies the text that wasn't typed and forgets it: the host's `copyUntypedText` (Windows' `CopyUntypedText`).
     public var copyUntyped: @MainActor () -> Void
     /// The pill always on screen, or only while it has something to show (the pill's `minimized`).
     public var setPillAlwaysShown: @MainActor (Bool) -> Void
@@ -238,7 +239,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     /// The mode in the status line, and whether the pause item pauses or starts listening (Windows' `TrayIcon.Update`).
     public func showMode(_ mode: InteractionMode) {
         statusLine.title = Self.label(mode)
-        toggle.title = (mode == .paused ? "Start listening" : "Pause listening") + toggleSuffix
+        let action = mode == .paused ? "Start listening" : "Pause listening"
+        toggle.title = action + toggleSuffix
     }
 
     /// Brings the menu up to date before it opens (Windows' `menu.Opening`): the ticks, and the text that wasn't typed.
@@ -249,7 +251,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         english.state = state.hinglish ? .off : .on
         hinglish.state = state.hinglish && !state.accurate ? .on : .off
         hinglishAccurate.state = state.hinglish && state.accurate ? .on : .off
-        copyUntyped.isHidden = state.untypedText?.isEmpty ?? true
+        copyUntyped.isHidden = !state.hasUntypedText
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {

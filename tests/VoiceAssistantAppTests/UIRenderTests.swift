@@ -73,8 +73,7 @@ final class UIRenderTests: XCTestCase {
     func testTheMenuAndTheMenuBarIcon() {
         let recorder = MenuRecorder()
         recorder.state = MenuState(
-            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: true,
-            untypedText: "Call me at 4 PM.")
+            hinglish: true, accurate: false, pillAlwaysShown: true, startsAtLogin: true, hasUntypedText: true)
         let menu = StatusMenu(hotkeys: MenuHotkeys(), actions: recorder.actions)
         menu.showMode(.standby)
         menu.prepare()
@@ -83,7 +82,7 @@ final class UIRenderTests: XCTestCase {
             Renderer.render(MenuPicture(languages), "menu-2-dictation-language")
         }
 
-        recorder.state.untypedText = nil
+        recorder.state.hasUntypedText = false
         menu.showMode(.paused)
         menu.prepare()
         Renderer.render(MenuPicture(menu.menu), "menu-3-paused")
