@@ -130,7 +130,7 @@ final class SettingsPageTests: XCTestCase {
         let saved = AppSettings.loadOrCreate(from: rig.paths.settingsFile)
         XCTAssertEqual(saved.dictationVocabulary, ["GitHub Copilot", "Kubernetes"])
         XCTAssertEqual(
-            saved.replacements.pairs.map(\.key), ["git hub", "sign off"],
+            saved.replacements.pairs.map { $0.key }, ["git hub", "sign off"],
             "a key given twice keeps its first place, case aside")
         XCTAssertEqual(saved.replacements["git hub"], "GitHub!", "and takes its last value")
         XCTAssertEqual(saved.replacements["sign off"], "Thanks,\nShivam \\o/ \\t")

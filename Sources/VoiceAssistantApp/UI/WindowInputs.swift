@@ -72,7 +72,8 @@ public protocol FileOpener {
 
 /// The Mac's: NSWorkspace.
 public struct WorkspaceOpener: FileOpener {
-    public init() {}
+    /// Nonisolated, so it can be a default argument.
+    public nonisolated init() {}
 
     public func open(_ url: URL) {
         _ = NSWorkspace.shared.open(url)

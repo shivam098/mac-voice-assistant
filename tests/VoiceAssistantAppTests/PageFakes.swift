@@ -39,7 +39,7 @@ final class PageRig {
     }
 
     func home(board: BoardStore?, keys: KeyNames = KeyNames(), dictationKeyOn: Bool = true) -> HomeModel {
-        let now = now
+        let now = self.now
         return HomeModel(
             assistant: assistant, board: board, keys: keys, permissions: Permissions(system: system),
             dictationKeyOn: dictationKeyOn, clock: { now.value }, timeZone: timeZone)
@@ -48,7 +48,7 @@ final class PageRig {
     func settings(
         _ settings: AppSettings = AppSettings(), keys: KeyNames = KeyNames(), brainOn: Bool = true
     ) -> SettingsModel {
-        let now = now
+        let now = self.now
         return SettingsModel(
             settings: settings, paths: paths, assistant: assistant, brain: brainOn ? brain : nil, keys: keys,
             startAtLogin: login.item, restart: { [weak self] in self?.restarts += 1 }, opener: opener,
@@ -57,7 +57,7 @@ final class PageRig {
 
     /// A board in memory, on this clock.
     func board() throws -> BoardStore {
-        let now = now
+        let now = self.now
         return try BoardStore(path: nil, clock: { now.value }, timeZone: timeZone)
     }
 
