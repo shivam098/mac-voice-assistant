@@ -56,7 +56,7 @@ jobs:
           path: ~/brain-bench/Qwen3-4B-Instruct-2507-Q4_0.gguf
           key: brain-bench-qwen3-4b-instruct-2507-q4_0-e0ba675d
 
-      - name: Resolve (thumbfree-mac at the tip of main)
+      - name: Resolve (thumbfree-mac at the commit Package.swift pins)
         run: swift package update
 
       - name: Bench

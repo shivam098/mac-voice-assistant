@@ -6,7 +6,8 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .swiftpm/
-# Resolved on CI from thumbfree-mac's main until the first release pins a version
+# Not committed: Package.swift pins thumbfree-mac, which has no dependencies of its own, to a commit, and the Mac
+# workflow's daily run resolves the tip of its main instead
 Package.resolved
 # Models and outputs
 *.onnx

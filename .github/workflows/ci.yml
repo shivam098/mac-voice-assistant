@@ -5,7 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # thumbfree-mac's main is a dependency: a daily build catches a change there that breaks this app.
+  # Daily, against the tip of thumbfree-mac's main rather than the commit Package.swift pins (the canary step below),
+  # so a change there that breaks this app is caught before the next pin.
   schedule:
     - cron: '30 5 * * *'
 
@@ -36,7 +37,22 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-${{ github.run_id }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Resolve (thumbfree-mac at the tip of main)
+      # The scheduled run only: Package.swift's pinned thumbfree-mac becomes `branch: "main"` here, in this run's copy,
+      # so the build and the tests below run against the tip of its main. Pull requests and pushes keep the pin.
+      - name: thumbfree-mac at the tip of main (daily canary)
+        if: github.event_name == 'schedule'
+        run: |
+          pinned='(\.package\(url: "https://github\.com/shivam098/thumbfree-mac\.git", )revision: "[0-9a-f]{40}"\)'
+          moved='.package(url: "https://github.com/shivam098/thumbfree-mac.git", branch: "main")'
+          sed -E "s#$pinned#\\1branch: \"main\")#" Package.swift > Package.swift.canary
+          mv Package.swift.canary Package.swift
+          if ! grep -qF "$moved" Package.swift; then
+            echo "::error::Package.swift has no pinned thumbfree-mac revision that this step can move to main" >&2
+            exit 1
+          fi
+          git diff Package.swift
+
+      - name: Resolve (thumbfree-mac at ${{ github.event_name == 'schedule' && 'main' || 'the pinned commit' }})
         run: |
           swift package update
           cat Package.resolved

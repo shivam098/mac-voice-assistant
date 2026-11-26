@@ -70,7 +70,7 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # thumbfree-mac as Package.swift says: its main, as the Mac workflow builds it, until a release pins a commit.
+      # thumbfree-mac at the commit Package.swift pins, as the Mac workflow builds it (except its daily canary).
       - name: Build the app and the disk image
         env:
           VERSION: ${{ inputs.version }}

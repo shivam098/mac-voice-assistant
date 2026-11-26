@@ -9,7 +9,7 @@ the same script commands and output; the differences are at the end.
 ## Running it
 
 ```sh
-swift package update     # thumbfree-mac at the tip of its main, as CI uses it
+swift package update     # thumbfree-mac at the commit Package.swift pins, as CI uses it
 swift build -c release
 .build/release/VoiceAssistant --self-test <script> [<output>]
 ```

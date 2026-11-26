@@ -9,7 +9,7 @@
 # - Its release notes are in docs/release-notes/v<version>.md.
 # - The run was started on main (GITHUB_REF, which GitHub sets, is refs/heads/main): releases come from main only.
 # - Package.swift pins thumbfree-mac to a commit (revision: "<its 40-character SHA>"), so the release can be built
-#   again. Until then it follows thumbfree-mac's main.
+#   again. The Mac workflow's daily run builds against thumbfree-mac's main instead, as a canary.
 # - Neither the tag v<version> nor a release with that tag exists, so nothing is replaced.
 #
 # The first two stop any run. The last three stop a real run; a dry run only warns about them, and says that a real run

@@ -44,7 +44,7 @@ jobs:
             spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-
             spm-${{ runner.os }}-
 
-      - name: Resolve (thumbfree-mac at the tip of main)
+      - name: Resolve (thumbfree-mac at the commit Package.swift pins)
         run: |
           swift package update
           cat Package.resolved
