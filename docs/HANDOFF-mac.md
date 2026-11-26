@@ -12,9 +12,10 @@ PRs. Until now everything has been built and tested only on GitHub's macOS runne
 Jarvis for Mac (the app is called Voice Assistant; you wake it with "Hey Jarvis"): hands-free voice control for macOS.
 Open apps, dictate, navigate and send by voice, with an optional offline AI brain, all on the Mac. It's a port of the
 Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for Mac's (shivam098/thumbfree-mac), which
-this package uses at the tip of that repo's main. docs/design.md is the design and has the phase table.
+this package pins to a commit of that repo's main (`606d7a4` for v0.1.0); the Mac workflow's daily run builds against
+the tip of its main instead, to catch a change there. docs/design.md is the design and has the phase table.
 
-Merged (main was `55f0b5f` when this was last updated):
+Merged (main was `3a7aea7` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -36,23 +37,28 @@ Merged (main was `55f0b5f` when this was last updated):
   app) and the v0.1.0 release notes.
 - **The UI wiring** (#24): the menu bar, the pill, the window and the reminder cards are connected to the host, so the
   App workflow's .dmg is the whole app. The App workflow also opens the built app and checks that it starts.
+- **The window's polish and the idea board page** (#23, #27): VoiceOver names, text boxes macOS doesn't alter, and the
+  idea board in the window.
+- **The desktop layer, part 2** (#25): navigation (clicking by name, number badges, browser tabs in Chrome, Edge, Brave
+  and Safari), tested for real in Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
+- **The desktop layer, part 3** (#29): the AI brain's window list (at most 12; a hidden app's windows as minimized;
+  alerts and panels left out) and switching to a window, so the Mac implements all 18 of the core's desktop
+  requirements; a fix so Safari's address bar isn't taken for a page box; and the NavigationLab acceptance tests
+  N1–N9, with N10 and N16, passing through the app's self-test in Chrome and Safari on GitHub's Mac (33 checks each).
 
 In review or being built on the Windows PC, through PRs (check `gh pr list`):
 
-- **#25, the desktop layer, part 2:** navigation (clicking by name, number badges, browser tabs), tested for real in
-  Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
-- **#23 and #27:** a small polish PR for the window (VoiceOver names, and text boxes macOS doesn't alter), and the idea
-  board page.
-- **Then:** the desktop layer's part 3 (the NavigationLab acceptance tests N1–N9 through the self-test runner), and the
-  release PR (pin thumbfree-mac, then run the Release workflow).
+- **The v0.1.0 release** (#28, branch `release-0.1.0`): thumbfree-mac pinned, the daily canary against its main, and
+  the docs for the finished app. Once it has merged, the Release workflow publishes the v0.1.0 pre-release.
 
 The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
 gone.
 
-**What that means on this Mac today:** the App workflow's .dmg from main launches into the whole app; navigation by
-name and numbers comes with #25. So: set up the Mac, run every test, including the ones that need a real Mac (sections
-3 and 5), measure the AI brain on a real graphics chip, then install the latest .dmg from main (or v0.1.0 once it's
-released) and go through the app checklist in section 5.
+**What that means on this Mac today:** the App workflow's .dmg from main is the whole app, navigation and window
+switching included, and testing on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building
+there needs #19 (Swift 6.3's type check) until it merges. So: set up the Mac, run every test, including the ones that
+need a real Mac (sections 3 and 5), measure the AI brain on a real graphics chip, then install v0.1.0 once it's
+released (or the latest .dmg from main) and go through the app checklist in section 5.
 
 Before you start, see what has changed since this was written:
 
@@ -89,32 +95,47 @@ gh run list --branch main --limit 3
 ## 3. Build and test
 
 ```sh
-swift package update     # thumbfree-mac at the tip of its main, as CI does (Package.resolved isn't committed)
+swift package update     # thumbfree-mac at the commit Package.swift pins, as CI does (Package.resolved isn't committed)
 swift build -c release
 swift test
 ```
 
-On CI, `swift test` ran about 660 tests on main with no failures. Three groups skip unless you ask for them, because
-they act on this Mac or download a lot:
+On CI, `swift test` runs about 867 tests on main, 12 of them skipped, with no failures. Four groups run only when you
+ask for them, because they act on this Mac or download a lot. The 12 skipped on CI are the navigation tests (8), the
+AI brain's integration test and bench (3), and the stand-in app that the brain supervisor's test starts (1); outside
+GitHub Actions the 6 Accessibility tests skip too.
 
-1. **The Accessibility tests** open TextEdit, type into it and quit it. Give Accessibility to the app you run them from
-   (Terminal or iTerm: System Settings › Privacy & Security › Accessibility), keep your hands off the keyboard and
-   mouse while they run, then:
+1. **The Accessibility tests** (`AccessibilityIntegrationTests`) open TextEdit, type into it and quit it. Give
+   Accessibility to the app you run them from (Terminal or iTerm: System Settings › Privacy & Security ›
+   Accessibility), keep your hands off the keyboard and mouse while they run, then:
 
    ```sh
    VOICE_ASSISTANT_AX_TESTS=1 swift test --filter AccessibilityIntegrationTests
    ```
 
-   They change two of TextEdit's settings and put them back afterwards.
+   They change two of TextEdit's settings and put them back afterwards. On GitHub's runners they run anyway
+   (`GITHUB_ACTIONS=true`).
 
-2. **The AI brain's integration test** downloads llama.cpp (17 MB) and a 1.2 MB test model, starts llama-server on the
-   graphics chip, and checks that the server ends when the app is killed:
+2. **The navigation integration tests** (`NavigationIntegrationTests`) drive the NavigationLab pages in Chrome, Edge and
+   Safari, and Finder, TextEdit and System Settings, for a few minutes, with the same permission and hands off:
+
+   ```sh
+   VOICE_ASSISTANT_NAVIGATION_TESTS=1 swift test --filter NavigationIntegrationTests
+   ```
+
+   `VOICE_ASSISTANT_AX_TESTS=1` runs them too. A browser that isn't installed is skipped, and unless the app you run
+   them from may control Safari (Automation, which the Safari NavigationLab run asks for), Safari's test checks only
+   what works without AppleScript.
+
+3. **The AI brain's integration test** (`BrainIntegrationTests`, `BRAIN_INTEGRATION_FOLDER`) downloads llama.cpp
+   (17 MB) and a 1.2 MB test model, starts llama-server on the graphics chip, and checks that the server ends when the
+   app is killed:
 
    ```sh
    BRAIN_INTEGRATION_FOLDER="$HOME/brain-integration" swift test --filter BrainIntegrationTests
    ```
 
-3. **The AI brain bench** downloads the real 2.4 GB model: section 5, item 1.
+4. **The AI brain bench** (`BrainBenchTests`, `BRAIN_BENCH_FOLDER`) downloads the real 2.4 GB model: section 5, item 1.
 
 Anything that fails here but passes on CI is a finding: write it down (section 6).
 
@@ -162,7 +183,7 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
    memory. On GitHub's runners it scored 21/25 (17 of the first 21); Windows scores 22/25 (18 of 21) at about 1.9 s a
    request. Record the numbers with the Mac's chip and memory. Don't decide anything from them: that's the owner's
    call (section 8).
-2. **The Accessibility tests and the brain's integration test** (section 3) on a real Mac.
+2. **The Accessibility tests, the navigation integration tests and the brain's integration test** (section 3) here.
 
 **Once the whole app is out** (v0.1.0, or the App workflow's .dmg after the wiring PR has merged):
 
@@ -178,8 +199,10 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
    - Force Quit while the brain's model is loading: llama-server must not keep running (`pgrep llama-server` prints
      nothing);
    - Quit, start at login, and ThumbFree for Mac side by side.
-4. **The NavigationLab acceptance tests** (windows-voice-assistant `tests/NavigationLab`; N1–N9 in
-   `docs/specs/acceptance-tests.md`), once the desktop layer's navigation parts have merged.
+4. **The NavigationLab acceptance tests** (N1–N9 of windows-voice-assistant's `docs/specs/acceptance-tests.md`, with
+   N10 and N16): they pass on GitHub's Mac, so run them here, in Chrome and in Safari, with `tests/NavigationLab/run.sh`
+   as docs/testing.md says (docs/self-test.md has the details). The Safari run refuses to start while Safari is open,
+   and quits Safari when it's done.
 
 ## 6. Report what you found
 
@@ -214,7 +237,10 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
 - **The AI brain on Intel Macs:** on GitHub's Intel runner it scored 21/25, at about 9 s a request (Windows: 1.9 s),
   50–68 s for the first request, and 4.9 GB of peak memory. Intel Macs aren't offered the brain today.
 - **The brain on Apple silicon:** what the real-Mac bench shows (item 1 of section 5). docs/design.md also says to
-  compare the Q4_K_M model with Q4_0 on the graphics chip before the first release; the bench can't switch models yet.
+  compare the Q4_K_M model with Q4_0 on the graphics chip before the first stable release; the bench can't switch
+  models yet.
+- **Commands on Parakeet:** docs/design.md also plans to compare Parakeet with Whisper small.en for "Hey Jarvis" and
+  commands, on the same recordings, before the first stable release. Nothing here measures it yet.
 - **Windows bugs found while porting:**
   - a reminder time that has passed moves exactly 24 hours, which is an hour off across a daylight-saving change;
   - "tonight" after 8 pm gives a time that has already passed;

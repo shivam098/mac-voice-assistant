@@ -56,7 +56,7 @@ This page records the Mac decisions made since, the shape of the code, and the o
 - **"Hey Jarvis" and commands** start on whisper.cpp with the same `small.en` model and Silero filter as Windows, so the
   command measurements in
   [BENCHMARKS.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/BENCHMARKS.md) carry over.
-  Parakeet is compared with it on the same recordings before the first release.
+  Parakeet is compared with it on the same recordings before the first stable release.
 - Listening for "Hey Jarvis" keeps the microphone on, so macOS shows its orange microphone dot. **Pause listening**
   turns the microphone off; Fn dictation still works while paused, as Ctrl+Win does on Windows.
 
@@ -126,7 +126,7 @@ The porting guide's capability map is the plan. These are the points it leaves o
 - llama.cpp build **b12483**, as on Windows: `llama-b12483-bin-macos-arm64.tar.gz` (17.2 MB, SHA-256 `a7e77443…`),
   and the same model file, `Qwen3-4B-Instruct-2507-Q4_0.gguf` (2.4 GB, SHA-256 `e0ba675d…`). Each is downloaded once,
   on request, and checked. Q4_0 was chosen for the Snapdragon's graphics chip; on Metal, Q4_K_M is measured against it
-  with the brain's test requests before the first release.
+  with the brain's test requests before the first stable release (v0.1.0 is a test build), on a real Apple silicon Mac.
 - It runs on 127.0.0.1 with a random port and key, unloads after an hour unused, and keeps every safety limit from the
   core: it acts only after "Hey Jarvis", asks for a **yes** before sending, deleting, buying, closing, opening a program
   or typing more than 200 characters, stops after 8 steps or 30 seconds, and **Esc** stops it at once.
@@ -167,7 +167,7 @@ guide explains each one, like ThumbFree's.
 |---|---|---|
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
-| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Done on GitHub's runner: part 1 (apps, windows, keys, typing and focus), part 2 (navigation: scans and clicks, browser tabs, the numbers) and part 3 (the AI brain's window list and switching, so no requirement is left to the core's defaults; the NavigationLab's acceptance tests N1–N9, with N10 and N16, through the app's self-test in Chrome and Safari). The integration tests pass in Chrome, Edge, Safari, Finder, TextEdit and System Settings. The check on a real Mac is pending |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | Built: the menu bar, the pill, the reminder cards and the window (Home with its permissions card, the idea board, Settings and What you can say), drawn on CI and wired to the assistant; the App workflow checks that the app starts into them, and the self-test drives TextEdit through it. The real-Mac checklist ([testing.md](testing.md)) is pending |
-| 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
-| 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization (the hardened runtime then needs the `com.apple.security.automation.apple-events` entitlement for Safari's tabs through AppleScript) | |
+| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Done on GitHub's Mac: part 1 (apps, windows, keys, typing and focus), part 2 (navigation: scans and clicks, browser tabs, the numbers) and part 3 (the AI brain's window list and switching, so the Mac implements all 18 of the core's desktop requirements; the NavigationLab's acceptance tests N1–N9, with N10 and N16, pass through the app's self-test in Chrome and Safari, 33 checks each). The integration tests pass in Chrome, Edge, Safari, Finder, TextEdit and System Settings. The real-Mac checklist ([testing.md](testing.md)) is pending |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | Built: the menu bar, the pill, the reminder cards and the window (Home with its permissions card, the idea board, Settings and What you can say), drawn on CI and wired to the assistant; the App workflow checks that the app starts into them, and the self-test drives TextEdit, and the NavigationLab in Chrome and Safari, through it. The real-Mac checklist ([testing.md](testing.md)) is pending |
+| 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | Built, with its download, its supervisor and the window list it plans with. On GitHub's runners the bench got 21 of the 25 requests right (Windows: 22), but their Apple silicon runner has no graphics chip llama.cpp can use: the bench on a real Apple silicon Mac is pending, and so is the comparison of Q4_K_M with Q4_0 there, planned above before the first stable release (HANDOFF-mac.md section 8) |
+| 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization (the hardened runtime then needs the `com.apple.security.automation.apple-events` entitlement for Safari's tabs through AppleScript) | Test builds: the v0.1.0 pre-release, from the Release workflow (thumbfree-mac pinned, Xcode 16.4). The real-Mac checklist is pending; Developer ID and notarization need a paid Apple Developer account |

@@ -20,8 +20,10 @@ let package = Package(
         .executable(name: "VoiceAssistant", targets: ["VoiceAssistant"]),
     ],
     dependencies: [
-        // Both Mac apps move together on main until the first release, which will pin a version.
-        .package(url: "https://github.com/shivam098/thumbfree-mac.git", branch: "main"),
+        // Pinned to a commit of thumbfree-mac's main, so a release can be built again (scripts/check-release.sh
+        // insists). The Mac workflow's daily run builds against the tip of its main instead, to catch a change there
+        // before the next pin.
+        .package(url: "https://github.com/shivam098/thumbfree-mac.git", revision: "606d7a447ab8dc6b350b7a9c27add4df51c2556e"),
     ],
     targets: [
         .target(name: "VoiceAssistantBoard"),
