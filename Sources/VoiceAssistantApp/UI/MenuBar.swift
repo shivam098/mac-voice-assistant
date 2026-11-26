@@ -120,7 +120,7 @@ public final class MenuBar {
     }
 
     /// A short message by the icon for 4 seconds (Windows' `ShowBalloon`), with a warning sign unless `warning` is
-    /// false.
+    /// false; after the ones before it, which show one at a time.
     public func showBalloon(_ message: String, warning: Bool = true) {
         balloon.show(message, warning: warning, anchor: item.button?.window?.frame)
     }

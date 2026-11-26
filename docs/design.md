@@ -44,8 +44,9 @@ This page records the Mac decisions made since, the shape of the code, and the o
   whose buttons ask macOS, then open System Settings. The window opens at Home when the app starts, unless it started
   at login, and then too while a permission is missing.
 - What Windows says in tray balloons (a hotkey another app has, the Fn key the app can't see yet, ThumbFree running too,
-  a failed restart) shows in a balloon under the menu bar icon. While ThumbFree runs with the same key, the menu also
-  says so under its status line, until ThumbFree quits.
+  a failed restart) shows in a balloon under the menu bar icon, one at a time as Windows shows them: what's said at
+  the same moment waits its turn. While ThumbFree runs with the same key, the menu also says so under its status line,
+  until ThumbFree quits.
 
 ## Speech
 

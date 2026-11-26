@@ -154,7 +154,8 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
 - [ ] **Pause listening, then tap Fn.** Dictation still works while paused.
 - [ ] **⌃⇧Z.** The last dictation is typed again where the cursor is.
 - [ ] **With a Dvorak or AZERTY keyboard layout:** ⌃⇧Z is the key that types Z, and switching layouts moves it.
-- [ ] **If another app already uses one of the three hotkeys:** Voice Assistant says which one it couldn't have.
+- [ ] **If another app already uses one of the three hotkeys:** Voice Assistant says which one it couldn't have. On a
+  first launch, with Accessibility not yet allowed, that balloon and the Fn key's show one after the other.
 
 ### The idea board and reminders
 
