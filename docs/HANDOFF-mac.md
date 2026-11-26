@@ -14,7 +14,7 @@ Open apps, dictate, navigate and send by voice, with an optional offline AI brai
 Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for Mac's (shivam098/thumbfree-mac), which
 this package uses at the tip of that repo's main. docs/design.md is the design and has the phase table.
 
-Merged (main was `59833e7` when this was last updated):
+Merged (main was `55f0b5f` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -34,25 +34,25 @@ Merged (main was `59833e7` when this was last updated):
   permissions card, Settings, and What you can say).
 - **Release preparation** (#21): the Release workflow, [docs/testing.md](testing.md) (the real-Mac checklist for the
   app) and the v0.1.0 release notes.
+- **The UI wiring** (#24): the menu bar, the pill, the window and the reminder cards are connected to the host, so the
+  App workflow's .dmg is the whole app. The App workflow also opens the built app and checks that it starts.
 
 In review or being built on the Windows PC, through PRs (check `gh pr list`):
 
-- **#24, the UI wiring:** connects the menu bar, the pill, the window and the reminder cards to the host, so the .dmg
-  is the whole app.
 - **#25, the desktop layer, part 2:** navigation (clicking by name, number badges, browser tabs), tested for real in
   Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
-- **Then:** a small polish PR for the window (VoiceOver names, and text boxes macOS doesn't alter), the idea board
-  page, the desktop layer's part 3 (the NavigationLab acceptance tests N1–N9 through the self-test runner), and the
+- **#23 and #27:** a small polish PR for the window (VoiceOver names, and text boxes macOS doesn't alter), and the idea
+  board page.
+- **Then:** the desktop layer's part 3 (the NavigationLab acceptance tests N1–N9 through the self-test runner), and the
   release PR (pin thumbfree-mac, then run the Release workflow).
 
 The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
 gone.
 
-**What that means on this Mac today:** until #24 merges, the app on main runs the assistant behind a placeholder menu;
-its pill, window and reminder cards are in the code but not shown yet. So for now: set up the Mac, run every test,
-including the ones that need a real Mac (sections 3 and 5), and measure the AI brain on a real graphics chip. Once #24
-has merged (the App workflow's .dmg then launches into the whole app) or v0.1.0 is released, install it and go through
-the app checklist in section 5.
+**What that means on this Mac today:** the App workflow's .dmg from main launches into the whole app; navigation by
+name and numbers comes with #25. So: set up the Mac, run every test, including the ones that need a real Mac (sections
+3 and 5), measure the AI brain on a real graphics chip, then install the latest .dmg from main (or v0.1.0 once it's
+released) and go through the app checklist in section 5.
 
 Before you start, see what has changed since this was written:
 
