@@ -144,6 +144,7 @@ public final class AssistantHost: @unchecked Sendable {
     /// A voice command asked to stop listening during a call: the queue turns the microphone off once it's over.
     let stopRequested = Locked(false)
     let lastBrainStatus = Locked<BrainStatus?>(nil)
+    let brainDownloadFailure = Locked<String?>(nil)
     let hadUntypedText = Locked(false)
 
     /// The Hindi + English models' loads, behind `hinglishGate`.
@@ -282,6 +283,10 @@ public final class AssistantHost: @unchecked Sendable {
         return nil
     }
 
+    /// Why the AI brain's last download failed (C#'s `BrainError`): nil after a good download, and once another starts.
+    /// A model that downloaded but then couldn't start didn't fail to download; `brainError` says why it couldn't start.
+    public var brainDownloadError: String? { brainDownloadFailure.value }
+
     // MARK: Starting and stopping
 
     /// Starts the work queue, loads the speech models (downloading them the first time), then listens if settings say
@@ -390,7 +395,18 @@ public final class AssistantHost: @unchecked Sendable {
 
     /// Downloads the AI brain's files in the background (carrying on where a download stopped), then loads it.
     public func startBrainDownload() {
-        parts.brain?.startDownload()
+        guard let brain = parts.brain else { return }
+        brainDownloadFailure.value = nil
+        let download = brain.startDownload()
+        Task.detached(priority: .utility) { [weak self] in
+            await download.value
+
+            // As the download ends, a failed one shows in the status with files still missing. The model starting
+            // afterwards, or failing to, is another matter.
+            if case .failed(let reason) = brain.status, brain.missingBytes > 0 {
+                self?.brainDownloadFailure.value = reason
+            }
+        }
     }
 
     /// Stops the AI brain's download; the next one carries on where it stopped.

@@ -107,7 +107,8 @@ final class AssistantHostTests: XCTestCase {
         XCTAssertTrue(ready)
 
         rig.host.beginDictationCapture(1)
-        _ = await eventually { rig.microphone.isRunning }
+        let recording = await eventually { rig.log.labels.contains(DictationLabels.listening) }
+        XCTAssertTrue(recording)
         rig.microphone.feed(TestAudio.tone(1))
         rig.speech.english.hears("hello world")
         rig.host.endDictationCapture(cancel: false)
@@ -168,7 +169,8 @@ final class AssistantHostTests: XCTestCase {
         rig.host.start()
         _ = await eventually { rig.log.messages.contains("Ready. Press ⌃⇧Space to start listening.") }
         rig.host.beginDictationCapture(9)
-        _ = await eventually { rig.microphone.isRunning }
+        let recording = await eventually { rig.log.labels.contains(DictationLabels.listening) }
+        XCTAssertTrue(recording)
         rig.speech.english.always = "a long note"
         rig.microphone.feed(TestAudio.tone(1.2))
 

@@ -165,13 +165,16 @@ public enum SelfTest {
             let front = try await onQueue(host, "") { host.parts.desktop.foregroundWindow()?.processName ?? "" }
             output.add("   foreground: \(front)")
         } else if line == "braindownload" {
+            // Downloads what's missing of the AI brain (resuming) and waits; records only whether it worked: its files
+            // are all here and the download didn't fail. A model that downloaded but couldn't start did download.
             host.startBrainDownload()
             try await Task.sleep(nanoseconds: 500_000_000)
             while host.brainDownloadProgress != nil {
                 try await Task.sleep(nanoseconds: 500_000_000)
             }
 
-            let ok = host.brainError == nil && host.brainStatus?.isInstalled == true
+            let installed = host.brain.map { $0.missingBytes == 0 } ?? false
+            let ok = installed && host.brainDownloadError == nil
             output.add("   brain download: \(ok ? "ok" : "failed")")
         } else if line.hasPrefix("brainwait ") {
             let seconds = try number(rest(line, "brainwait "))

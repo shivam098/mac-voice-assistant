@@ -299,13 +299,24 @@ final class FakeCues: CuePlayer, @unchecked Sendable {
     func close() {}
 }
 
-/// An AI brain that thinks until it's stopped.
+/// An AI brain that thinks until it's stopped, and downloads as the test says.
 final class FakeBrain: AssistantBrain, @unchecked Sendable {
     private let lock = NSLock()
+    private let download: (@Sendable (FakeBrain) async -> Void)?
     private var current = BrainStatus.ready
+    private var missing: Int64
     private var handler: (@Sendable (BrainStatus) -> Void)?
     private var asked = 0
     private var done: [String] = []
+
+    /// - Parameters:
+    ///   - missingBytes: What a download would fetch.
+    ///   - download: What a download does once the status says it's downloading: it changes the status and the missing
+    ///     bytes as LlamaBrain would, and the download ends when it returns. Nil: `startDownload` only records the call.
+    init(missingBytes: Int64 = 0, download: (@Sendable (FakeBrain) async -> Void)? = nil) {
+        missing = missingBytes
+        self.download = download
+    }
 
     var availability: BrainAvailability { .ready }
 
@@ -315,7 +326,10 @@ final class FakeBrain: AssistantBrain, @unchecked Sendable {
 
     var folder: String { "brain" }
 
-    var missingBytes: Int64 { 0 }
+    var missingBytes: Int64 {
+        get { lock.withLock { missing } }
+        set { lock.withLock { missing = newValue } }
+    }
 
     var onStatusChange: (@Sendable (BrainStatus) -> Void)? {
         get { lock.withLock { handler } }
@@ -337,7 +351,9 @@ final class FakeBrain: AssistantBrain, @unchecked Sendable {
     @discardableResult
     func startDownload() -> Task<Void, Never> {
         record("startDownload")
-        return Task {}
+        guard let download else { return Task {} }
+        change(to: .downloading(received: 0, total: missingBytes))
+        return Task { await download(self) }
     }
 
     func cancelDownload() {

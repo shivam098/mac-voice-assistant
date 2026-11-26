@@ -68,6 +68,29 @@ final class SelfTestTests: XCTestCase {
             output.hasSuffix("> wait soon\n!! FormatException: The input string 'soon' was not in a correct format.\n"))
     }
 
+    /// `braindownload` is ok once the AI brain's files are all here, even when its model then can't start: that isn't
+    /// a failed download (C#'s `BrainError` is the download's alone). A download that stops with files missing fails.
+    func testABrainDownloadIsOkOnceItsFilesAreHereEvenIfTheModelCantStart() async throws {
+        let startFails = FakeBrain(missingBytes: 100) { brain in
+            brain.missingBytes = 0
+            brain.change(to: .installed)
+            brain.change(to: .starting)
+            brain.change(to: .failed("It couldn't start: llama-server stopped. It tries again when you next ask."))
+        }
+
+        let downloadStops = FakeBrain(missingBytes: 100) { brain in
+            brain.missingBytes = 40
+            brain.change(to: .failed("The download stopped. Check the internet connection and try again."))
+        }
+
+        let started = try await run("braindownload\n", brain: startFails)
+        let stopped = try await run("braindownload\n", brain: downloadStops)
+
+        XCTAssertTrue(started.contains("> braindownload\n"))
+        XCTAssertTrue(started.contains("   brain download: ok\n"))
+        XCTAssertTrue(stopped.contains("   brain download: failed\n"))
+    }
+
     func testStatusLinesAreRedacted() {
         XCTAssertEqual(
             SelfTest.redact("Typing into “Notes.txt”. Say “stop typing” when done."),
@@ -82,8 +105,8 @@ final class SelfTestTests: XCTestCase {
 
     private let insertMethod = Locked("Paste")
 
-    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world.").
-    private func run(_ script: String) async throws -> String {
+    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world."), and `brain`.
+    private func run(_ script: String, brain: AssistantBrain? = nil) async throws -> String {
         let folder = TempFolder()
         defer { folder.remove() }
         let path = folder.file("lab.selftest.txt")
@@ -93,7 +116,7 @@ final class SelfTestTests: XCTestCase {
         let paths = AppPaths(data: folder.path, logs: folder.file("logs"))
         let parts = HostParts(
             desktop: desktop, microphone: FakeMicrophone(), speech: FakeSpeech(),
-            models: FakeModels(folder: paths.models, present: []), makeSounds: { FakeCues(enabled: $0) },
+            models: FakeModels(folder: paths.models, present: []), brain: brain, makeSounds: { FakeCues(enabled: $0) },
             copyText: { _ in })
         let insertMethod = self.insertMethod
         let platform = SelfTestPlatform(
