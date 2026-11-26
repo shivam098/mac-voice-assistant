@@ -115,9 +115,14 @@ extension MacDesktop {
         return nil
     }
 
-    /// C#'s `ActivateAsync`: un-minimizes the window, then up to 5 times brings it forward and waits 0.3 s for it to
-    /// take the keys. `logName` is what the log calls it when `appName` could be a title (logs never hold titles).
+    /// C#'s `ActivateAsync`: un-minimizes the window (and unhides its app, whose windows don't show while it's hidden),
+    /// then up to 5 times brings it forward and waits 0.3 s for it to take the keys. `logName` is what the log calls it
+    /// when `appName` could be a title (logs never hold titles).
     func activate(_ window: AppWindow, _ appName: String, logName: String? = nil) async throws -> DesktopResult {
+        if let pid = pid_t(exactly: window.info.processId), isHidden(pid) {
+            ax.set(kAXHiddenAttribute, false, of: ax.application(pid))
+        }
+
         if (try? ax.number(kAXMinimizedAttribute, of: window.element)) == 1 {
             ax.set(kAXMinimizedAttribute, false, of: window.element)
         }
@@ -298,8 +303,7 @@ extension MacDesktop {
             return .fail("I couldn't find \(name)'s window.")
         }
 
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        guard let screen = screens.first(where: { $0.frame.contains(center) }) ?? screens.first else {
+        guard let screen = Self.screen(of: frame, screens) else {
             return .fail("I couldn't tell which screen \(name) is on.")
         }
 

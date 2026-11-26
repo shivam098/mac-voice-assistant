@@ -127,17 +127,56 @@ final class SelfTestTests: XCTestCase {
             "   choices shown: 1 at 10,21 30x40")
     }
 
+    /// "show numbers" numbers what can be clicked: `expectchoices` checks how many show and `expectchoice` that one is
+    /// on something with a name, never writing the names; the platform draws them as the app does, then hides them.
+    func testChecksTheNumbersShownAndDrawsThem() async throws {
+        let drawn = Locked<[Int]>([])
+        let clickable = [
+            UiElement(id: 1, name: "New", role: .button, rect: ScreenRect(x: 10, y: 10, width: 80, height: 30)),
+            UiElement(id: 2, name: "Library", role: .link, rect: ScreenRect(x: 10, y: 60, width: 80, height: 30)),
+        ]
+        let output = try await run(
+            """
+            listen
+            say: hey jarvis
+            say: show numbers
+            expectchoices: 2
+            expectchoice: library
+            expectchoice: Delete account
+            say: hide numbers
+            expectchoices: 0
+            """,
+            clickable: clickable, drawn: drawn)
+
+        XCTAssertTrue(output.contains("   choices shown: 2 at 10,10 80x30; 10,60 80x30\n"))
+        XCTAssertTrue(output.contains("> expectchoices: 2\n   PASS: 2 numbers shown, 2 expected\n"))
+        XCTAssertTrue(
+            output.contains(
+                "> expectchoice: library\n   PASS: a number is on something with the expected name (numbers=2)\n"))
+        XCTAssertTrue(
+            output.contains(
+                "> expectchoice: Delete account\n   FAIL: a number is not on something with the expected name "
+                    + "(numbers=2)\n"))
+        XCTAssertTrue(output.contains("> expectchoices: 0\n   PASS: 0 numbers shown, 0 expected\n"))
+        XCTAssertFalse(output.contains("Library"))
+        XCTAssertEqual([2, 0], drawn.value)
+    }
+
     private let insertMethod = Locked("Paste")
 
-    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world."), `brain`, and the
-    /// permissions the desktop is missing.
+    /// The script's output, run with the fake desktop and focus (a text area holding "Hello world."), `brain`, the
+    /// permissions the desktop is missing, what the window in front has that can be clicked, and where the numbers
+    /// drawn go (how many each time).
     private func run(
-        _ script: String, brain: AssistantBrain? = nil, missingPermissions: [String] = []
+        _ script: String, brain: AssistantBrain? = nil, missingPermissions: [String] = [],
+        clickable: [UiElement] = [], drawn: Locked<[Int]>? = nil
     ) async throws -> String {
         let folder = TempFolder()
         defer { folder.remove() }
         let output = folder.file("lab.out.txt")
-        let running = start(script, in: folder, output: output, brain: brain, missingPermissions: missingPermissions)
+        let running = start(
+            script, in: folder, output: output, brain: brain, missingPermissions: missingPermissions,
+            clickable: clickable, drawn: drawn)
         await running.value
         return TestFiles.text(output)
     }
@@ -145,23 +184,30 @@ final class SelfTestTests: XCTestCase {
     /// The self-test running `script` in `folder`, writing to `output`.
     private func start(
         _ script: String, in folder: TempFolder, output: String, brain: AssistantBrain? = nil,
-        missingPermissions: [String] = []
+        missingPermissions: [String] = [], clickable: [UiElement] = [], drawn: Locked<[Int]>? = nil
     ) -> Task<Void, Never> {
         let path = folder.file("lab.selftest.txt")
         TestFiles.write(path, script)
         let desktop = FakeDesktop()
         desktop.focus = FocusInfo(name: "Message", editable: true, inPage: true)
+        desktop.clickable = clickable
         let paths = AppPaths(data: folder.path, logs: folder.file("logs"))
         let parts = HostParts(
             desktop: desktop, microphone: FakeMicrophone(), speech: FakeSpeech(),
             models: FakeModels(folder: paths.models, present: []), brain: brain, makeSounds: { FakeCues(enabled: $0) },
             copyText: { _ in })
         let insertMethod = self.insertMethod
+        var showBadges: (@Sendable ([ChoiceBadge]?) -> Void)?
+        if let drawn {
+            showBadges = { badges in drawn.update { $0.append(badges?.count ?? 0) } }
+        }
+
         let platform = SelfTestPlatform(
             focusedText: { (kind: "AXTextArea", text: "Hello world.") },
             clipboardFingerprint: { "formats=[(empty)] textHash=\(SelfTest.hash("")) len=0" },
             setInsertMethod: { insertMethod.value = $0 },
-            missingPermissions: { missingPermissions })
+            missingPermissions: { missingPermissions },
+            showBadges: showBadges)
         let events = DispatchQueue(label: "VoiceAssistantAppTests.selfTest")
         return Task {
             await SelfTest.run(

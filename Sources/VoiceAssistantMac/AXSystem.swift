@@ -45,7 +45,7 @@ public protocol AXSystem: AnyObject {
     func isSettable(_ attribute: String, of element: AnyObject) throws -> Bool?
 
     /// Sets a true/false attribute: kAXFocusedAttribute, kAXMainAttribute, kAXMinimizedAttribute,
-    /// kAXFrontmostAttribute.
+    /// kAXFrontmostAttribute, an app's kAXHiddenAttribute.
     @discardableResult
     func set(_ attribute: String, _ value: Bool, of element: AnyObject) -> AXOutcome
 
@@ -134,8 +134,10 @@ public enum AXOutcome: Equatable, Sendable {
     case noAnswer
 }
 
-/// Attribute, role and action names that HIServices has no constant for, as WebKit and Chromium name them.
+/// Attribute, role and action names that HIServices has no constant for, as AppKit, WebKit and Chromium name them.
 enum AXName {
+    /// A window in full screen, in a Space of its own (AppKit's windows).
+    static let fullScreen = "AXFullScreen"
     static let placeholder = "AXPlaceholderValue"
     static let identifier = "AXIdentifier"
     static let domIdentifier = "AXDOMIdentifier"

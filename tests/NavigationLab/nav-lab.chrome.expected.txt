@@ -1,0 +1,13 @@
+# What the NavigationLab's output must have in Chrome besides its PASS checks (scripts/self-test.sh --expect): Chrome
+# in front; the numbers offered for the two New buttons (N3), the box numbers (N8) and "show numbers" (N9); the click
+# that waits for "yes" (N5); and the three typings as `read` records them, each in the page's text field: "Hello from
+# voice" in the lab page's Message box (N6), "Lofi music" in the videos page's Search box (N7) and "Quarterly plan" in
+# the mail page's Subject box (N8), by their length in UTF-16 units and the first 12 hex digits of their SHA-256.
+   foreground: com.google.Chrome
+   [Command] Info: Which “…”? Say the number.
+   [Command] Warning: “…” can't be undone. Say “…” to click it, or “…”.
+   [Command] Info: Which box? Say the number.
+   [Command] Info: Say a number to click it, or “…”.
+   focused: AXTextField len=16 hash=530FF4A282BA
+   focused: AXTextField len=10 hash=A1BA2E9A905E
+   focused: AXTextField len=14 hash=4A2DBA4FE4B9

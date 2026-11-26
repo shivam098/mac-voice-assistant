@@ -1,0 +1,113 @@
+# The NavigationLab: Voice Assistant's self-test of voice navigation in a browser through the real desktop
+# (docs/self-test.md): the acceptance scenarios N1–N9 of windows-voice-assistant's docs/specs/acceptance-tests.md, and
+# N10 and N16 as its nav-lab.selftest.txt has them. Run it with tests/NavigationLab/run.sh, which opens videos.html,
+# lab.html, mail.html and chats.html, in that order, in a new window of a browser of the lab's own (Chrome or Safari),
+# then runs this script. The checks name the pages' own texts only; the output holds no titles or names.
+# stoponfail: if the lab's window isn't in front, stop rather than type into whatever is.
+stoponfail
+listen
+say: hey jarvis
+fg
+expecttitle: Lab Videos
+
+# N1: a tab by its position
+say: go to the second tab
+wait 600
+expecttitle: Nav Lab
+
+# N2: a click by name, on one side
+say: click New on the left side
+wait 400
+expecttitle: clicked New left
+
+# N3: a name two buttons have shows numbers; a number clicks, and the numbers go
+say: click New
+expectchoices: 2
+say: two
+wait 400
+expectchoices: 0
+expecttitle: clicked New right
+
+# N4: "go to <button>" clicks when no app or tab has that name
+say: go to library
+wait 400
+expecttitle: clicked Library left
+
+# N5: a click that can't be undone waits for "yes"
+say: click delete account
+wait 300
+expecttitle: clicked Library left
+say: yes
+wait 400
+expecttitle: clicked Delete account right
+
+# N6: typing into a box by its name
+say: start typing in the message box
+expectfocus: Message
+say: hello from voice
+wait 300
+read
+expect: Hello from voice
+say: stop typing
+
+# N7: a tab by its site, then the site's box (the YouTube site profile's Search)
+say: go to the tab where YouTube is open
+wait 600
+expecttitle: YouTube
+say: start typing
+expectfocus: Search
+say: lofi music
+wait 300
+read
+expect: Lofi music
+say: stop typing
+
+# N8: two boxes without a name to go by: numbers to choose (the browser's address bar isn't one)
+say: go to the third tab
+wait 600
+expecttitle: Lab Inbox
+say: start typing
+expectchoices: 2
+expectchoice: To
+expectchoice: Subject
+say: two
+expectfocus: Subject
+say: quarterly plan
+wait 300
+read
+expect: Quarterly plan
+say: stop typing
+
+# N9: numbers on every button, link, tab and text box, then hidden (on the lab page, which has them all)
+say: go to the second tab
+wait 600
+expecttitle: Nav Lab
+say: show numbers
+expectchoice: Pull requests
+expectchoice: Library
+expectchoice: Message
+expectchoice: Lab Inbox
+say: hide numbers
+expectchoices: 0
+
+# N10: the rows of a chat list (WhatsApp's, which open only on a real click) by name, a sound-alike name too
+say: go to the last tab
+wait 600
+expecttitle: Lab Chats
+say: select vivash morang
+wait 500
+expecttitle: opened Bibhash Morang
+say: click family
+wait 500
+expecttitle: opened Family
+
+# N16: the browser's back and forward
+say: go back
+wait 600
+expecttitle: opened Bibhash Morang
+say: go to the next page
+wait 600
+expecttitle: opened Family
+say: go to the previous page
+wait 600
+expecttitle: opened Bibhash Morang

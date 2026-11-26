@@ -3,6 +3,7 @@ import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantBoard
 import VoiceAssistantCore
+import VoiceAssistantMac
 
 /// How Voice Assistant was started: its command line (windows-voice-assistant App.xaml.cs's `e.Args`).
 struct LaunchOptions: Equatable {
@@ -576,7 +577,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         reader.startWaking()
         let paths = self.paths
         let hostParts = parts.hostParts(settings, paths, desktop: desktop)
-        let platform = SelfTestPlatform.mac(insertMethod, desktop: desktop)
+        // The numbers and the outline over the app in front, as the app draws them (Windows' self-test shows them too).
+        let platform = SelfTestPlatform.mac(insertMethod, desktop: desktop, overlay: MarkerOverlay())
         Task { @MainActor in
             await SelfTest.run(
                 scriptPath: files.script, outputPath: files.output, settings: settings, paths: paths,

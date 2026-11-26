@@ -222,7 +222,7 @@ final class FakeAX: AXSystem {
         }
 
         if attribute == kAXMinimizedAttribute || attribute == kAXSelectedAttribute
-            || attribute == kAXDisclosingAttribute {
+            || attribute == kAXDisclosingAttribute || attribute == kAXHiddenAttribute {
             fake[attribute] = value
         }
 
@@ -632,5 +632,19 @@ final class Rig {
         app[kAXWindowsAttribute] = windows
         ax.focus(app, window: window, element: element)
         return window
+    }
+
+    /// Setting AXMain on a window makes it its app's focused window, and AXFrontmost on an app makes it take the keys,
+    /// as macOS does.
+    func activates() {
+        ax.onSet = { [unowned self] element, attribute, value in
+            guard value else { return }
+            if attribute == kAXMainAttribute {
+                self.ax.apps[element.pid]?[kAXFocusedWindowAttribute] = element
+            } else if attribute == kAXFrontmostAttribute {
+                self.ax.focusedApp = element
+                self.ax.focused = nil
+            }
+        }
     }
 }
