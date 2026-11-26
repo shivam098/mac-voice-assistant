@@ -22,10 +22,6 @@ on:
         required: true
         type: boolean
         default: true
-  # TEMPORARY, removed before merging: a dry run of 0.1.0 for each push to release-1, to try this workflow before it's
-  # on main (only then can it be run by hand).
-  push:
-    branches: [release-1]
 
 # One run at a time, and none cancelled.
 concurrency:
@@ -53,9 +49,8 @@ jobs:
       - name: Check
         id: check
         env:
-          # TEMPORARY: a push is a dry run of 0.1.0.
-          VERSION: ${{ github.event_name == 'push' && '0.1.0' || inputs.version }}
-          DRY_RUN: ${{ github.event_name == 'push' || inputs.dry_run }}
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
