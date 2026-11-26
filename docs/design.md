@@ -35,8 +35,9 @@ This page records the Mac decisions made since, the shape of the code, and the o
 
 - Settings, the board and what it has learned go in `~/Library/Application Support/VoiceAssistant`, in the same files
   and formats as Windows (`settings.json`, `board.json`, `learned.json`). Logs hold states and timings, never words.
-- Reminders become notifications (`UNUserNotificationCenter`) with **Done**, **Snooze 10 min** and **Open board**,
-  scheduled with macOS so they appear on time.
+- Reminders pop up as cards in the bottom-right corner, as on Windows, with **Done**, **Snooze 10 min** and **Open
+  board**: floating panels that never take the focus and stay until they're answered, which Notification Center's
+  banners don't, and they need no permission.
 
 ## Speech
 
@@ -128,6 +129,6 @@ guide explains each one, like ThumbFree's.
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
 | 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Next |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | UI part 1 (the menu bar, the pill and the reminder cards, drawn on CI) is in review; the window, the board and the wiring are next |
 | 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
 | 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization | |

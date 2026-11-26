@@ -44,8 +44,21 @@ jobs:
       - name: Build
         run: swift build -c release
 
+      # UIRenderTests draws the pill, the menu, the reminder cards and the window into UI_RENDER_DIR; the folder is
+      # kept as the run's ui-renders artifact, to look at.
       - name: Tests
+        id: tests
+        env:
+          UI_RENDER_DIR: ${{ runner.temp }}/ui-renders
         run: swift test
+
+      - name: Keep the UI renders
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-renders
+          path: ${{ runner.temp }}/ui-renders
+          if-no-files-found: error
 
       # The AI brain's integration test (tests/VoiceAssistantMacTests/BrainIntegrationTests.swift): the pinned llama.cpp
       # build and a 1 MB model, kept between runs, on this runner's graphics chip.
