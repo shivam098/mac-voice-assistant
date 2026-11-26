@@ -13,20 +13,6 @@ final class AppsTests: XCTestCase {
         name: "TextEdit", launch: "com.apple.TextEdit", processNames: ["com.apple.TextEdit"],
         newWindowKeys: "Cmd+N", newDocumentKeys: "Cmd+N")
 
-    /// Setting AXMain on a window makes it its app's focused window, and AXFrontmost on an app makes it take the keys,
-    /// as macOS does.
-    private func activates(_ rig: Rig) {
-        rig.ax.onSet = { [unowned rig] element, attribute, value in
-            guard value else { return }
-            if attribute == kAXMainAttribute {
-                rig.ax.apps[element.pid]?[kAXFocusedWindowAttribute] = element
-            } else if attribute == kAXFrontmostAttribute {
-                rig.ax.focusedApp = element
-                rig.ax.focused = nil
-            }
-        }
-    }
-
     /// TextEdit running with a window that isn't in front, Finder taking the keys.
     @discardableResult
     private func textEditBehindFinder(_ rig: Rig) -> FakeElement {
@@ -114,7 +100,7 @@ final class AppsTests: XCTestCase {
 
     func testActivatesTheAppsWindow() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         let window = textEditBehindFinder(rig)
         let result = try await rig.desktop.openOrActivate(Self.textEdit, newWindow: false)
         XCTAssertEqual("TextEdit is ready.", result.message)
@@ -140,11 +126,13 @@ final class AppsTests: XCTestCase {
         XCTAssertTrue(rig.log.lines.contains("activation of TextEdit refused by macOS"))
     }
 
+    /// A minimized window, which macOS calls a dialog (AXDialog) while it's minimized, is restored.
     func testRestoresAMinimizedWindow() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         let window = textEditBehindFinder(rig)
         window[kAXMinimizedAttribute] = true
+        window[kAXSubroleAttribute] = kAXDialogSubrole
         let result = try await rig.desktop.openOrActivate(Self.textEdit, newWindow: false)
         XCTAssertTrue(result.success, result.message)
         XCTAssertEqual("AXMinimized=false", window.changes.first)
@@ -153,7 +141,7 @@ final class AppsTests: XCTestCase {
     /// "Open TextEdit" with TextEdit open means a fresh window: its new-window keys, then the window that wasn't there.
     func testOpensANewWindow() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         textEditBehindFinder(rig)
         rig.keys.onPost = { [unowned rig] chord in
             guard chord == PasteTyper.Chord(key: CGKeyCode(kVK_ANSI_N), modifiers: .command) else { return }
@@ -167,7 +155,7 @@ final class AppsTests: XCTestCase {
 
     func testSaysWhenNoNewWindowCame() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         textEditBehindFinder(rig)
         let result = try await rig.desktop.openOrActivate(Self.textEdit, newWindow: true)
         XCTAssertEqual(
@@ -180,7 +168,7 @@ final class AppsTests: XCTestCase {
     /// new-document keys gets a blank document.
     func testStartsTheApp() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         rig.front(8, "com.apple.finder", "Finder", window: .window(pid: 8, number: 80))
         let url = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
         rig.workspace.installed["com.apple.TextEdit"] = url
@@ -276,7 +264,7 @@ final class AppsTests: XCTestCase {
     /// Without a browser in front, the default browser opens it, and its new window is brought forward.
     func testOpensAPageInTheDefaultBrowser() async throws {
         let rig = Rig()
-        activates(rig)
+        rig.activates()
         rig.front()
         rig.workspace.onOpen = { [unowned rig] _, _ in
             let safari = FakeElement.app(pid: 11)

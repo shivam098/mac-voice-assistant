@@ -7,12 +7,12 @@ import XCTest
 
 /// Navigation through the real Accessibility API, CGEvent and AppleScript: the NavigationLab pages (copied from
 /// windows-voice-assistant tests/NavigationLab) in Chrome, Edge and Safari, and Finder, TextEdit and System Settings.
-/// Scans, clicks, text boxes, tabs, the overlay panel and the core's place, as the core asks for them ("click New on the
-/// left" resolved by the core's `TargetResolver`). They run with VOICE_ASSISTANT_NAVIGATION_TESTS=1 (CI's step of their
-/// own) or VOICE_ASSISTANT_AX_TESTS=1: Chrome and Edge run with profiles of their own and quit; Safari and System
-/// Settings quit only when they weren't running, else only what was opened closes; TextEdit quits, its settings put
-/// back. Lines starting "AX test:" say what was found: counts, the lab pages' and Apple's own controls' names, outcomes
-/// and timings.
+/// Scans, clicks, text boxes, tabs, the overlay panel, the core's place and the AI brain's windows, as the core asks
+/// for them ("click New on the left" resolved by the core's `TargetResolver`). They run with
+/// VOICE_ASSISTANT_NAVIGATION_TESTS=1 (CI's step of their own) or VOICE_ASSISTANT_AX_TESTS=1: Chrome and Edge run with
+/// profiles of their own and quit; Safari and System Settings quit only when they weren't running, else only what was
+/// opened closes; TextEdit quits, its settings put back. Lines starting "AX test:" say what was found: counts, the lab
+/// pages' and Apple's own controls' names, outcomes and timings.
 final class NavigationIntegrationTests: XCTestCase {
     private var desktop: MacDesktop!
 
@@ -98,7 +98,26 @@ final class NavigationIntegrationTests: XCTestCase {
         let back = try await show(tabs, "Lab Videos")
         XCTAssertTrue(back.sameWindow(desktop.foregroundWindow()), "Chrome in front: \(Integration.keys(desktop))")
 
+        try await checkWindows(chrome: back)
         try await checkPlace()
+    }
+
+    /// The AI brain's view of the windows with Chrome in front (`listWindows`): Chrome's window first; Finder's, when
+    /// it has one, brought forward (`activateWindow`), then Chrome's.
+    private func checkWindows(chrome: WindowInfo) async throws {
+        let listed = try await desktop.listWindows()
+        Integration.report("the windows listed: \(Integration.describe(listed))")
+        XCTAssertTrue(chrome.sameWindow(listed.first?.window), "Chrome's window first")
+        guard let finder = listed.first(where: { $0.window.processName == "com.apple.finder" }) else {
+            Integration.report("Finder has no window to bring forward")
+            return
+        }
+
+        let toFinder = try await desktop.activateWindow(finder.window)
+        XCTAssertTrue(toFinder.success, toFinder.message)
+        let toChrome = try await desktop.activateWindow(chrome)
+        XCTAssertTrue(toChrome.success, toChrome.message)
+        XCTAssertTrue(chrome.sameWindow(desktop.foregroundWindow()), "Chrome in front: \(Integration.keys(desktop))")
     }
 
     /// The core's place, the pill's "📍" breadcrumb, from the Mac's app names and window titles: the real controller
@@ -505,6 +524,107 @@ final class NavigationIntegrationTests: XCTestCase {
         XCTAssertTrue(shown, "the Appearance pane (title now \(desktop.windowTitle(window)))")
     }
 
+    // MARK: The AI brain's windows
+
+    /// The windows the AI brain sees and brings forward (C#'s `ListWindows` and `ActivateWindowAsync`): two TextEdit
+    /// documents and a Finder window, the one taking the keys first, each with its frame and its screen's usable part;
+    /// the document behind brought to the front; a minimized one listed as such and restored; and with TextEdit hidden,
+    /// its documents listed as minimized and one brought back.
+    func testListsAndBringsForwardWindows() async throws {
+        let bundle = "com.apple.TextEdit"
+        let previous = Integration.setTextEditSettings()
+        await Integration.quit(bundle)
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-assistant-windows-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let files: [URL] = ["Alpha.txt", "Beta.txt"].map { folder.appendingPathComponent($0) }
+        for file in files {
+            try Data("lab".utf8).write(to: file)
+        }
+
+        defer {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) {
+                app.forceTerminate()
+            }
+
+            Integration.restoreTextEditSettings(previous)
+            try? FileManager.default.removeItem(at: folder)
+        }
+
+        XCTAssertTrue(Integration.run(["/usr/bin/open", "-a", "TextEdit"] + files.map(\.path), timeout: 15))
+        let textEdit = AppEntry(name: "TextEdit", launch: bundle, processNames: [bundle])
+        let both = try await Integration.waitUntil(15) { desktop.appWindows(textEdit).count >= 2 }
+        Integration.report("TextEdit's windows: \(desktop.appWindows(textEdit).map(\.info.title))")
+        XCTAssertTrue(both, "TextEdit's two documents")
+        let opened = Integration.script("""
+            tell application "Finder"
+                set lab to make new Finder window to (POSIX file "\(folder.path)" as alias)
+                return id of lab
+            end tell
+            """)
+        Integration.report("Finder opened the folder: \(opened)")
+        let finderEntry = AppEntry(name: "Finder", launch: "com.apple.finder", processNames: ["com.apple.finder"])
+        let finder = try await open(finderEntry)
+        defer { close(finder) }
+
+        var listed = try await desktop.listWindows()
+        Integration.report("the windows listed: \(Integration.describe(listed))")
+        XCTAssertTrue(finder.sameWindow(listed.first?.window), "the window taking the keys first")
+        XCTAssertFalse(listed.contains { $0.window.processId == Int(getpid()) })
+        let alpha = try XCTUnwrap(listed.first { $0.window.title == "Alpha.txt" }, "Alpha.txt listed")
+        let beta = try XCTUnwrap(listed.first { $0.window.title == "Beta.txt" }, "Beta.txt listed")
+        for window in [listed[0], alpha, beta] {
+            XCTAssertEqual(.normal, window.show, window.window.title)
+            XCTAssertNotNil(window.rect, window.window.title)
+            XCTAssertNotNil(window.workArea, window.window.title)
+        }
+
+        // The document behind the other comes to the front.
+        let alphaFirst = (listed.firstIndex(of: alpha) ?? 0) < (listed.firstIndex(of: beta) ?? 0)
+        let behind = alphaFirst ? beta : alpha
+        let other = alphaFirst ? alpha : beta
+        var result = try await desktop.activateWindow(behind.window)
+        XCTAssertEqual("“\(behind.window.title)” is ready.", result.message)
+        XCTAssertTrue(behind.window.sameWindow(desktop.foregroundWindow()), Integration.keys(desktop))
+
+        // Minimized: listed as such, then restored and in front.
+        let element = try XCTUnwrap(desktop.windowElement(other.window))
+        desktop.ax.set(kAXMinimizedAttribute, true, of: element)
+        let minimized = try await Integration.waitUntil(5) {
+            listed = try await desktop.listWindows()
+            return listed.first { $0.window.sameWindow(other.window) }?.show == .minimized
+        }
+        Integration.report("with one minimized: \(Integration.describe(listed))")
+        let textEditPid = pid_t(other.window.processId)
+        let afterMinimizing = Integration.describeAppWindows(desktop, textEditPid)
+        Integration.report("TextEdit's AXWindows with one minimized: \(afterMinimizing)")
+        XCTAssertTrue(minimized, "\(other.window.title) listed as minimized")
+        result = try await desktop.activateWindow(other.window)
+        XCTAssertTrue(result.success, result.message)
+        XCTAssertTrue(other.window.sameWindow(desktop.foregroundWindow()), Integration.keys(desktop))
+        XCTAssertEqual(0, try desktop.ax.number(kAXMinimizedAttribute, of: element))
+
+        // Hidden: TextEdit's documents listed as minimized, then one brought back with TextEdit.
+        result = try await desktop.activateWindow(finder)
+        XCTAssertTrue(result.success, result.message)
+        let running = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first)
+        running.hide()
+        let hidden = try await Integration.waitUntil(5) {
+            listed = try await desktop.listWindows()
+            let documents = listed.filter { $0.window.processName == bundle }
+            return running.isHidden && documents.count == 2 && documents.allSatisfy { $0.show == .minimized }
+        }
+        Integration.report("with TextEdit hidden (\(running.isHidden)): \(Integration.describe(listed))")
+        let whileHidden = Integration.describeAppWindows(desktop, textEditPid)
+        Integration.report("TextEdit's AXWindows while hidden: \(whileHidden)")
+        XCTAssertTrue(hidden, "TextEdit's documents listed as minimized while it's hidden")
+        result = try await desktop.activateWindow(alpha.window)
+        XCTAssertTrue(result.success, result.message)
+        XCTAssertTrue(alpha.window.sameWindow(desktop.foregroundWindow()), Integration.keys(desktop))
+        XCTAssertFalse(running.isHidden)
+        await Integration.quit(bundle)
+    }
+
     // MARK: The overlay
 
     /// The panel shows the badges where they go and the outline for under a second; the window server lists it,
@@ -676,6 +796,14 @@ final class NavigationIntegrationTests: XCTestCase {
         Integration.report("\(browser) mail page's text boxes: \(boxes.map(\.name))")
         XCTAssertTrue(boxes.contains { $0.name == "To" })
         XCTAssertTrue(boxes.contains { $0.name == "Subject" })
+        // The core knows the browser's address bar by its name: Safari's smart search field says it is one.
+        let outside: [String] = boxes.compactMap { box in
+            guard let entry = desktop.registry.lookup(box.id), !entry.inPage else { return nil }
+            let id = (try? desktop.ax.identifier(of: entry.element)) ?? "?"
+            return "\(box.name) (id \(id))"
+        }
+        Integration.report("\(browser) boxes outside the page: \(outside)")
+        XCTAssertTrue(boxes.contains { $0.name.lowercased().contains("address") }, "\(browser)'s address bar says so")
     }
 
     /// Closes the window with its close button.

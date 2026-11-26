@@ -201,8 +201,12 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
 - [ ] **In WhatsApp Web: "click" a contact's name.** That chat opens, also for a name it hears slightly differently.
 - [ ] **Edge or Brave**, if you have them: tabs and clicks work as in Chrome.
 - [ ] **The NavigationLab acceptance tests,** N1 to N9 in windows-voice-assistant's
-  [acceptance-tests.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/specs/acceptance-tests.md)
-  with its `tests/NavigationLab` pages, in Chrome and in Safari.
+  [acceptance-tests.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/specs/acceptance-tests.md),
+  with N10 and N16, in Chrome and in Safari. They need this repo and Xcode (HANDOFF-mac.md sections 2 and 3): after
+  `swift build -c release`, run `tests/NavigationLab/run.sh .build/release/VoiceAssistant chrome`, then the same with
+  `safari` with Safari closed ([self-test.md](self-test.md)), and don't use the Mac while each runs (about a minute).
+  Each ends with a line such as "nav-lab-chrome: 33 passed, 0 failed". They pass on GitHub's runner; this Mac's screen,
+  fonts and browser versions are what's new.
 
 ### The AI brain
 
@@ -213,6 +217,8 @@ It needs Apple silicon and macOS 13.3 or later. On an Intel Mac, check only that
   take?
 - [ ] **"Hey Jarvis, open the MrBeast video on YouTube"**, with YouTube open in a browser window behind another one. The
   pill says Thinking…, then the YouTube window comes to the front and a video opens. How long did it think?
+- [ ] **The same with that browser window minimized, then with the browser hidden (⌘H).** The window comes back to the
+  front each time.
 - [ ] **More requests: "Hey Jarvis, mute the video", "open Instagram in a new tab", "what's the weather in
   Bangalore?", "tell me a joke", "reply thanks to Rahul on WhatsApp"** (it types the reply and asks "Send it?": say
   "no"). Which come out right?

@@ -139,12 +139,16 @@ final class FakeAX: AXSystem {
         try lookup(element).pid
     }
 
+    /// Called with the element and the attribute each `string`, `number` and `elements` asks for, before the element
+    /// answers or not: an app that takes its time.
+    var onRead: ((FakeElement, String) -> Void)?
+
     func string(_ attribute: String, of element: AnyObject) throws -> String? {
-        try lookup(element)[attribute] as? String
+        try read(element, attribute)[attribute] as? String
     }
 
     func number(_ attribute: String, of element: AnyObject) throws -> Int? {
-        let value = try lookup(element)[attribute]
+        let value = try read(element, attribute)[attribute]
         if let flag = value as? Bool {
             return flag ? 1 : 0
         }
@@ -172,7 +176,7 @@ final class FakeAX: AXSystem {
     }
 
     func elements(_ attribute: String, of element: AnyObject) throws -> [AnyObject] {
-        let fake = try lookup(element)
+        let fake = try read(element, attribute)
         if attribute == kAXChildrenAttribute {
             return fake.children
         }
@@ -222,7 +226,7 @@ final class FakeAX: AXSystem {
         }
 
         if attribute == kAXMinimizedAttribute || attribute == kAXSelectedAttribute
-            || attribute == kAXDisclosingAttribute {
+            || attribute == kAXDisclosingAttribute || attribute == kAXHiddenAttribute {
             fake[attribute] = value
         }
 
@@ -299,6 +303,14 @@ final class FakeAX: AXSystem {
         focused = element
     }
 
+    private func read(_ element: AnyObject, _ attribute: String) throws -> FakeElement {
+        if let fake = element as? FakeElement {
+            onRead?(fake, attribute)
+        }
+
+        return try lookup(element)
+    }
+
     private func lookup(_ element: AnyObject) throws -> FakeElement {
         guard let fake = element as? FakeElement, fake.answers else { throw AXNoAnswer() }
         return fake
@@ -362,6 +374,9 @@ final class FakeWorkspace: WorkspaceSystem {
 
     /// The window server's windows, by number.
     var serverWindows: [Int: ServerWindow] = [:]
+
+    /// The windows in `windowOrder` that `serverWindows` has.
+    func serverWindowsFrontToBack() -> [ServerWindow] { windowOrder.compactMap { serverWindows[$0] } }
 
     func serverWindow(_ number: Int) -> ServerWindow? { serverWindows[number] }
 
@@ -632,5 +647,19 @@ final class Rig {
         app[kAXWindowsAttribute] = windows
         ax.focus(app, window: window, element: element)
         return window
+    }
+
+    /// Setting AXMain on a window makes it its app's focused window, and AXFrontmost on an app makes it take the keys,
+    /// as macOS does.
+    func activates() {
+        ax.onSet = { [unowned self] element, attribute, value in
+            guard value else { return }
+            if attribute == kAXMainAttribute {
+                self.ax.apps[element.pid]?[kAXFocusedWindowAttribute] = element
+            } else if attribute == kAXFrontmostAttribute {
+                self.ax.focusedApp = element
+                self.ax.focused = nil
+            }
+        }
     }
 }

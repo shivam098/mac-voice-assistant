@@ -21,10 +21,17 @@ final class FakeDesktop: JarvisDesktop, @unchecked Sendable {
     private var focusInfo: FocusInfo?
     private var typedTexts: [String] = []
     private var openedApps: [String] = []
+    private var clickableElements: [UiElement] = []
 
     var front: WindowInfo? {
         get { lock.withLock { frontWindow } }
         set { lock.withLock { frontWindow = newValue } }
+    }
+
+    /// What the window in front has that can be clicked ("show numbers").
+    var clickable: [UiElement] {
+        get { lock.withLock { clickableElements } }
+        set { lock.withLock { clickableElements = newValue } }
     }
 
     var field: AssistantFieldCheck {
@@ -69,6 +76,8 @@ final class FakeDesktop: JarvisDesktop, @unchecked Sendable {
     func backspace(_ count: Int) throws {}
 
     func describeFocus() -> FocusInfo? { focus }
+
+    func listClickable(_ window: WindowInfo) async throws -> [UiElement] { clickable }
 }
 
 /// A microphone the test speaks into.

@@ -1,9 +1,9 @@
 name: Self-test
 
 # The app's scripted self-test on the runner's own desktop (docs/self-test.md): the release build's real controller and
-# MacDesktop drive TextEdit through Accessibility, as the acceptance labs do. GitHub's macOS runners let what a step
-# starts use Accessibility and send keys. Each lab's result and output are in the job's summary; its output and the
-# app's log are this run's artifact.
+# MacDesktop drive TextEdit, then Chrome and Safari (the NavigationLab's acceptance scenarios), through Accessibility,
+# as the acceptance labs do. GitHub's macOS runners let what a step starts use Accessibility and send keys. Each lab's
+# result and output are in the job's summary; its output and the app's log are this run's artifact.
 on:
   pull_request:
     paths:
@@ -52,12 +52,51 @@ jobs:
       - name: Build
         run: swift build -c release --product VoiceAssistant
 
-      # Each lab writes its output and the app's log to $RUNNER_TEMP/self-test/<lab>. Further labs (NavigationLab) go
-      # after it with `if: ${{ !cancelled() }}`, so one failing lab doesn't hide the others.
+      # Each lab writes its output and the app's log to $RUNNER_TEMP/self-test/<lab>. The labs after it go with
+      # `if: ${{ !cancelled() }}`, so one failing lab doesn't hide the others.
       - name: TextEdit lab
         run: |
           app="$(swift build -c release --show-bin-path)/VoiceAssistant"
           tests/TextEditLab/run.sh "$app" "$RUNNER_TEMP/self-test/textedit"
+
+      # The NavigationLab drives Chrome and Safari. The runner image installs Chrome with Homebrew, which quarantines
+      # it, and Launch Services asks before it first opens a quarantined app, which no one answers here. Safari's tabs
+      # come from AppleScript, which needs the Automation permission: the image gives its agent (whose processes the
+      # labs are) that permission for Finder and System Events only, and the user TCC database takes a row for Safari.
+      - name: Prepare the browsers the NavigationLab drives
+        if: ${{ !cancelled() }}
+        run: |
+          chrome="/Applications/Google Chrome.app"
+          if xattr -p com.apple.quarantine "$chrome" >/dev/null 2>&1; then
+            sudo xattr -dr com.apple.quarantine "$chrome" && echo "$chrome: no longer quarantined"
+          else
+            echo "$chrome: not quarantined"
+          fi
+
+          db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          now=$(date +%s)
+          for client in /opt/hca/hosted-compute-agent /bin/bash; do
+            row="'kTCCServiceAppleEvents','$client',1,2,3,1,NULL,NULL,0,'com.apple.Safari',NULL,NULL,$now,NULL,NULL,'UNUSED',$now"
+            if sqlite3 "$db" "INSERT OR REPLACE INTO access VALUES($row);"; then
+              echo "Automation of Safari allowed for $client"
+            else
+              echo "TCC.db refused the row for $client"
+            fi
+          done
+
+      - name: NavigationLab in Chrome
+        if: ${{ !cancelled() }}
+        timeout-minutes: 8
+        run: |
+          app="$(swift build -c release --show-bin-path)/VoiceAssistant"
+          tests/NavigationLab/run.sh "$app" chrome "$RUNNER_TEMP/self-test/nav-lab-chrome"
+
+      - name: NavigationLab in Safari
+        if: ${{ !cancelled() }}
+        timeout-minutes: 8
+        run: |
+          app="$(swift build -c release --show-bin-path)/VoiceAssistant"
+          tests/NavigationLab/run.sh "$app" safari "$RUNNER_TEMP/self-test/nav-lab-safari"
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}

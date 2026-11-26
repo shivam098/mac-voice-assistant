@@ -6,9 +6,11 @@ import ThumbFreeCore
 import ThumbFreeMac
 import VoiceAssistantBoard
 import VoiceAssistantCore
+import VoiceAssistantMac
 
 /// What the self-test reads of the Mac besides the desktop: the focused element's kind and text, which it only ever
-/// measures and hashes; the clipboard's fingerprint; the insertion method it switches; and the permissions it needs.
+/// measures and hashes; the clipboard's fingerprint; the insertion method it switches; the permissions it needs; and
+/// the number badges it draws, as the app does.
 public struct SelfTestPlatform: Sendable {
     /// The focused element's role ("AXTextArea") and text; "(timeout)" or "(error …)" without text when it can't be
     /// read.
@@ -23,23 +25,47 @@ public struct SelfTestPlatform: Sendable {
     /// The permissions the desktop needs that this process hasn't got ("accessibility", "postEvents"); none to run.
     public var missingPermissions: @Sendable () -> [String]
 
+    /// Draws the host's numbers over the app in front, or hides them (nil), as the app's `MarkerOverlay` does; nil
+    /// draws none.
+    public var showBadges: (@Sendable ([ChoiceBadge]?) -> Void)?
+
+    /// Outlines what was just clicked, selected or focused, as the app does; nil outlines nothing.
+    public var flash: (@Sendable (ScreenRect) -> Void)?
+
     public init(
         focusedText: @escaping @Sendable () -> (kind: String, text: String),
         clipboardFingerprint: @escaping @Sendable () -> String,
         setInsertMethod: @escaping @Sendable (String) -> Void,
-        missingPermissions: @escaping @Sendable () -> [String] = { [] }
+        missingPermissions: @escaping @Sendable () -> [String] = { [] },
+        showBadges: (@Sendable ([ChoiceBadge]?) -> Void)? = nil,
+        flash: (@Sendable (ScreenRect) -> Void)? = nil
     ) {
         self.focusedText = focusedText
         self.clipboardFingerprint = clipboardFingerprint
         self.setInsertMethod = setInsertMethod
         self.missingPermissions = missingPermissions
+        self.showBadges = showBadges
+        self.flash = flash
     }
 
-    /// This Mac: the Accessibility API, the general pasteboard, the insertion method the desktop reads, and the
+    /// This Mac: the Accessibility API, the general pasteboard, the insertion method the desktop reads, the
     /// permissions the desktop is missing (as macOS counts them, those of the terminal or runner that started the app,
-    /// when it's started directly).
-    static func mac(_ insertMethod: Locked<String>, desktop: DesktopParts) -> SelfTestPlatform {
+    /// when it's started directly), and `overlay` for the numbers and the outline, on the main thread.
+    static func mac(
+        _ insertMethod: Locked<String>, desktop: DesktopParts, overlay: MarkerOverlay? = nil
+    ) -> SelfTestPlatform {
         let missing = desktop.missingPermissions
+        var showBadges: (@Sendable ([ChoiceBadge]?) -> Void)?
+        var flash: (@Sendable (ScreenRect) -> Void)?
+        if let overlay {
+            showBadges = { badges in
+                DispatchQueue.main.async { MainActor.assumeIsolated { overlay.showBadges(badges) } }
+            }
+            flash = { rect in
+                DispatchQueue.main.async { MainActor.assumeIsolated { overlay.flash(rect) } }
+            }
+        }
+
         return SelfTestPlatform(
             focusedText: { FocusedText.read() },
             clipboardFingerprint: {
@@ -48,7 +74,9 @@ public struct SelfTestPlatform: Sendable {
                     : DispatchQueue.main.sync(execute: SelfTest.pasteboardFingerprint)
             },
             setInsertMethod: { insertMethod.value = $0 },
-            missingPermissions: { missing?().map(\.rawValue) ?? [] })
+            missingPermissions: { missing?().map(\.rawValue) ?? [] },
+            showBadges: showBadges,
+            flash: flash)
     }
 }
 
@@ -68,6 +96,8 @@ public struct SelfTestPlatform: Sendable {
 ///     expecttitle: <text>    PASS/FAIL: the front window's title contains the phrase (the title isn't written)
 ///     expectfocus: <name>    PASS/FAIL: the focused control's accessible name contains the phrase
 ///     expectboard: <list> <text>  PASS/FAIL: the self-test's own idea board has that note in that list
+///     expectchoices: <n>     PASS/FAIL: exactly n numbers show (0: none); the Mac's own
+///     expectchoice: <name>   PASS/FAIL: a number shows on something whose name contains the phrase; the Mac's own
 ///     braindownload          download the AI brain's missing files and wait (records ok or failed only)
 ///     brainwait <seconds>    load the AI brain if needed and wait until it's ready; records its state
 ///     insert Paste|Type      switch the insertion method
@@ -80,8 +110,9 @@ public struct SelfTestPlatform: Sendable {
 /// starting "!!" says the run stopped: a failed check after `stoponfail`, an error, or missing permissions (then
 /// nothing runs). It's written as the run goes, so one that hangs leaves what it did. It never holds user text, window
 /// titles or clipboard contents: text in “quotes” in status lines is left out. Windows' `typing <chunk> <delay>` tunes
-/// its own key typing; the Mac reads it and does nothing. The pill and the number badges aren't shown until the app's
-/// UI lands.
+/// its own key typing; the Mac reads it and does nothing. The number badges and the click outline show over the app in
+/// front as in the app, when the platform draws them (`SelfTestPlatform.showBadges`, the app's `MarkerOverlay`), so a
+/// run's real clicks go through them as a user's do; the pill isn't shown.
 public enum SelfTest {
     /// C#'s `FormatException`, for a number the script doesn't give as one.
     struct FormatException: Error, LocalizedError {
@@ -123,7 +154,14 @@ public enum SelfTest {
             output.add("   [\(name(status.mode))] \(name(status.kind)): \(redact(status.message))")
         }
 
-        host.choicesChanged.subscribe { badges in output.add(choicesLine(badges)) }
+        // The numbers shown now, for `expectchoices` and `expectchoice`; drawn as the app draws them.
+        let choices = Locked<[ChoiceBadge]>([])
+        host.choicesChanged.subscribe { badges in
+            choices.value = badges ?? []
+            output.add(choicesLine(badges))
+            platform.showBadges?(badges)
+        }
+        host.highlight.subscribe { rect in platform.flash?(rect) }
         await host.startForSelfTest()
         do {
             var stopOnFail = false
@@ -143,7 +181,7 @@ public enum SelfTest {
                 if line == "stoponfail" {
                     stopOnFail = true
                 } else {
-                    try await step(line, host, board, platform, output)
+                    try await step(line, host, board, platform, choices, output)
                 }
 
                 try await Task.sleep(nanoseconds: 400_000_000)
@@ -159,9 +197,10 @@ public enum SelfTest {
         await host.shutdown()
     }
 
-    /// One script line other than `stoponfail`.
+    /// One script line other than `stoponfail`; `choices` are the numbers shown now.
     private static func step(
-        _ line: String, _ host: AssistantHost, _ board: BoardStore, _ platform: SelfTestPlatform, _ output: Output
+        _ line: String, _ host: AssistantHost, _ board: BoardStore, _ platform: SelfTestPlatform,
+        _ choices: Locked<[ChoiceBadge]>, _ output: Output
     ) async throws {
         if line == "listen" {
             try await host.runOnQueue { _ = host.controller.setListening(true) }
@@ -237,6 +276,20 @@ public enum SelfTest {
             output.add(
                 "   \(pass ? "PASS" : "FAIL"): board \(pass ? "has" : "does not have") the expected note "
                     + "(notes=\(board.items.count))")
+        } else if line.hasPrefix("expectchoices:") {
+            // How many numbers show now (0: none), never what they're on.
+            let expected = try number(rest(line, "expectchoices:"))
+            let shown = choices.value.count
+            let pass = shown == expected
+            output.add("   \(pass ? "PASS" : "FAIL"): \(shown) numbers shown, \(expected) expected")
+        } else if line.hasPrefix("expectchoice:") {
+            // A number is on something whose name contains the script's phrase; the names aren't written.
+            let expected = rest(line, "expectchoice:")
+            let labels = choices.value.map(\.label)
+            let pass = labels.contains { containsIgnoringCase($0, expected) }
+            output.add(
+                "   \(pass ? "PASS" : "FAIL"): a number \(pass ? "is" : "is not") on something with the expected name "
+                    + "(numbers=\(labels.count))")
         } else if line.hasPrefix("expect:") {
             // Only whether the script's own phrase is there, never the field's other text. A Mac text box's line break
             // is "\n" (Windows' is "\r").

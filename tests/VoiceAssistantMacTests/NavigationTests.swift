@@ -187,6 +187,32 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(["text box scan: 3 of 7 in 0 ms"], rig.log.lines)
     }
 
+    /// A browser's address bar says it is one, as the core knows it by its name ("start typing" numbers only a page's
+    /// boxes in a browser): Safari's smart search field by its identifier, and Chromium's in another language by its
+    /// class. A page's own box stays the page's, whatever it says.
+    func testABrowsersAddressBarSaysItIsOne() async throws {
+        let rig = Rig()
+        let safari = FakeElement.textField(name: "smart search field")
+        safari[AXName.identifier] = AXName.safariAddressBar
+        let german = FakeElement.textField(
+            name: "Adress- und Suchleiste", frame: CGRect(x: 10, y: 40, width: 300, height: 24))
+        german[AXName.domClassList] = ["OmniboxViewViews"]
+        let english = FakeElement.textField(
+            name: "Address and search bar", frame: CGRect(x: 10, y: 70, width: 300, height: 24))
+        english[AXName.domClassList] = ["OmniboxViewViews"]
+        let subject = FakeElement.textField(name: "Subject", frame: CGRect(x: 10, y: 120, width: 300, height: 24))
+        subject[AXName.identifier] = AXName.safariAddressBar
+        let page = make(AXName.webArea, x: 0, y: 100, width: 1000, height: 600)
+        page.children = [subject]
+        let window = try front(rig, [safari, german, english, page])
+
+        let boxes = try await rig.desktop.listTextBoxes(window)
+        XCTAssertEqual(
+            ["smart search field (address bar)", "Adress- und Suchleiste (address bar)", "Address and search bar",
+             "Subject"],
+            boxes.map(\.name))
+    }
+
     /// The window server's frame, else Accessibility's.
     func testWindowRect() throws {
         let rig = Rig()

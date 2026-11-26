@@ -272,6 +272,42 @@ enum Integration {
         tabs.map { "\($0.index) \($0.title)" + ($0.isSelected ? " (shown)" : "") }.joined(separator: " | ")
     }
 
+    /// Windows as the reports list them: number, app, title, how each shows, its frame and its screen's usable part.
+    static func describe(_ windows: [DesktopWindow]) -> String {
+        func text(_ rect: ScreenRect?) -> String {
+            guard let rect else { return "-" }
+            return "\(Int(rect.x)),\(Int(rect.y)) \(Int(rect.width))x\(Int(rect.height))"
+        }
+
+        let lines: [String] = windows.map { (listed: DesktopWindow) -> String in
+            let window = listed.window
+            return "\(window.handle) \(window.processName) \"\(window.title)\" \(listed.show) \(text(listed.rect)) in "
+                + text(listed.workArea)
+        }
+        return lines.joined(separator: " | ")
+    }
+
+    /// An app's windows as Accessibility lists them (AXWindows): number, role and subrole, whether minimized, its
+    /// minimize button (enabled, disabled or none), title.
+    static func describeAppWindows(_ desktop: MacDesktop, _ pid: pid_t) -> String {
+        let ax = desktop.ax
+        let windows = (try? ax.elements(kAXWindowsAttribute, of: ax.application(pid))) ?? []
+        let lines: [String] = windows.map { (window: AnyObject) -> String in
+            let number = ax.windowNumber(of: window) ?? 0
+            let role = (try? ax.role(of: window)) ?? "-"
+            let subrole = (try? ax.subrole(of: window)) ?? "-"
+            let minimized = (try? ax.number(kAXMinimizedAttribute, of: window)).map { "\($0)" } ?? "-"
+            var button = "none"
+            if let found = try? ax.element(kAXMinimizeButtonAttribute, of: window) {
+                button = (try? ax.number(kAXEnabledAttribute, of: found)) == 0 ? "disabled" : "enabled"
+            }
+
+            let title = (try? ax.string(kAXTitleAttribute, of: window)) ?? "-"
+            return "\(number) \(role)/\(subrole) minimized \(minimized) minimize button \(button) \"\(title)\""
+        }
+        return "\(windows.count) windows: " + lines.joined(separator: " | ")
+    }
+
     /// What a scan of `root` walks (outside its pages unless `pages`): roles, subroles, names, whether each shows and
     /// its parent's role, for when something isn't found.
     static func dump(_ desktop: MacDesktop, _ root: AnyObject, pages: Bool = false, limit: Int = 150) {

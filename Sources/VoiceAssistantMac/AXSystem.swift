@@ -45,7 +45,7 @@ public protocol AXSystem: AnyObject {
     func isSettable(_ attribute: String, of element: AnyObject) throws -> Bool?
 
     /// Sets a true/false attribute: kAXFocusedAttribute, kAXMainAttribute, kAXMinimizedAttribute,
-    /// kAXFrontmostAttribute.
+    /// kAXFrontmostAttribute, an app's kAXHiddenAttribute.
     @discardableResult
     func set(_ attribute: String, _ value: Bool, of element: AnyObject) -> AXOutcome
 
@@ -134,8 +134,10 @@ public enum AXOutcome: Equatable, Sendable {
     case noAnswer
 }
 
-/// Attribute, role and action names that HIServices has no constant for, as WebKit and Chromium name them.
+/// Attribute, role and action names that HIServices has no constant for, as AppKit, WebKit and Chromium name them.
 enum AXName {
+    /// A window in full screen, in a Space of its own (AppKit's windows).
+    static let fullScreen = "AXFullScreen"
     static let placeholder = "AXPlaceholderValue"
     static let identifier = "AXIdentifier"
     static let domIdentifier = "AXDOMIdentifier"
@@ -146,6 +148,9 @@ enum AXName {
     static let popover = "AXPopover"
     static let tabButton = "AXTabButton"
     static let scrollToVisible = "AXScrollToVisible"
+
+    /// Safari's address bar's identifier (its smart search field's).
+    static let safariAddressBar = "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"
 }
 
 /// The Accessibility API itself. Every call waits at most `timeout` for the app's answer.

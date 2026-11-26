@@ -118,6 +118,10 @@ public protocol WorkspaceSystem: AnyObject {
     /// The numbers of the windows on screen, front-most first (CGWindowListCopyWindowInfo).
     func windowNumbersFrontToBack() -> [Int]
 
+    /// The windows on screen, front-most first, each with its process and frame (CGWindowListCopyWindowInfo, read
+    /// once): which app's window is in front of which.
+    func serverWindowsFrontToBack() -> [ServerWindow]
+
     /// The window with this number (CGWindowListCopyWindowInfo); nil when there's none.
     func serverWindow(_ number: Int) -> ServerWindow?
 
@@ -208,10 +212,22 @@ public final class SystemWorkspace: WorkspaceSystem, @unchecked Sendable {
         return list.compactMap { $0[kCGWindowNumber as String] as? Int }
     }
 
+    public func serverWindowsFrontToBack() -> [ServerWindow] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return list.compactMap { Self.window(from: $0) }
+    }
+
     public func serverWindow(_ number: Int) -> ServerWindow? {
         guard number > 0, let id = CGWindowID(exactly: number),
-              let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
-              let info = list.first(where: { ($0[kCGWindowNumber as String] as? Int) == number }),
+              let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]]
+        else { return nil }
+        return list.compactMap { Self.window(from: $0) }.first { $0.number == number }
+    }
+
+    /// A window as CGWindowListCopyWindowInfo describes it: its number, its process and its frame.
+    private static func window(from info: [String: Any]) -> ServerWindow? {
+        guard let number = info[kCGWindowNumber as String] as? Int,
               let owner = (info[kCGWindowOwnerPID as String] as? Int).flatMap({ pid_t(exactly: $0) }),
               let bounds = info[kCGWindowBounds as String] as? NSDictionary,
               let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
