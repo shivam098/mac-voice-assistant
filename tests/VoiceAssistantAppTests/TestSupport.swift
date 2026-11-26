@@ -85,19 +85,3 @@ enum Escaped {
     /// The lines of a vectors block.
     static func lines(_ block: String) -> [Substring] { block.split(separator: "\n") }
 }
-
-/// A value several threads write and read.
-final class Locked<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Value
-
-    init(_ value: Value) {
-        current = value
-    }
-
-    var value: Value { lock.withLock { current } }
-
-    func update(_ change: (inout Value) -> Void) {
-        lock.withLock { change(&current) }
-    }
-}

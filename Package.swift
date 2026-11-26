@@ -55,7 +55,7 @@ let package = Package(
         .testTarget(
             name: "VoiceAssistantAppTests",
             dependencies: [
-                "VoiceAssistantApp", "VoiceAssistantBoard", "VoiceAssistantCore",
+                "VoiceAssistantApp", "VoiceAssistantBoard", "VoiceAssistantCore", "VoiceAssistantMac",
                 .product(name: "ThumbFreeCore", package: "thumbfree-mac"),
                 .product(name: "ThumbFreeMac", package: "thumbfree-mac"),
                 .product(name: "ThumbFreeSpeech", package: "thumbfree-mac"),

@@ -67,6 +67,13 @@ public struct AppPaths: Equatable, Sendable {
         return Self.expand(DotNet.trim(setting))
     }
 
+    /// A file chosen in settings.json (`brainServerPath`, `brainModelPath`), trimmed and expanded as `expand` says;
+    /// nil when the setting is blank, for the default.
+    public static func chosenFile(_ setting: String?) -> String? {
+        guard let setting, !DotNet.isNullOrWhiteSpace(setting) else { return nil }
+        return expand(DotNet.trim(setting))
+    }
+
     /// A path from settings.json (`brainFolder`, `brainServerPath`, `brainModelPath`): environment variables written
     /// %NAME% are replaced, as .NET's `Environment.ExpandEnvironmentVariables` does on a Mac, and a leading "~" is the
     /// home folder, the Mac's way of writing it.
