@@ -38,6 +38,14 @@ In review or being built on the Windows PC, through PRs (check `gh pr list`):
 - **Release preparation:** a release workflow, docs/testing.md (the full real-Mac checklist for the app) and the
   v0.1.0 release notes.
 
+Unfinished work is saved on three branches. None of it has been built, tested or reviewed, so don't merge them as they
+are; continue them through PRs:
+
+- `wip/desktop-2`: the desktop layer's navigation (scans and clicks, browser tabs, the number badges) with the
+  NavigationLab pages and their tests;
+- `wip/app-3`, on top of #14: the real desktop wired into the host, and a self-test workflow that drives TextEdit;
+- `wip/ui-2`, on top of #15: the window's Home, Help and Settings pages.
+
 **What that means on this Mac today:** the app on main is still a placeholder (a menu-bar item; the assistant isn't
 connected yet). So for now: set up the Mac, run every test, including the ones that need a real Mac (sections 3 and 5),
 and measure the AI brain on a real graphics chip. Once the host, the UI and the wiring have merged and v0.1.0 is
