@@ -61,6 +61,38 @@ final class PageRig {
         return try BoardStore(path: nil, clock: { now.value }, timeZone: timeZone)
     }
 
+    /// An empty board's page, for a window that needs one (a board in memory reads no file, so it can't fail).
+    func emptyIdeas() -> BoardModel {
+        let now = self.now
+        let board = try! BoardStore(path: nil, clock: { now.value }, timeZone: timeZone)
+        return ideas(board)
+    }
+
+    /// What the board's page asked to run later (the glow's end, the fade-ins'), in order; `runLater()` runs it.
+    private(set) var later: [(seconds: TimeInterval, body: @MainActor @Sendable () -> Void)] = []
+    /// What the board's page said went wrong.
+    private(set) var reports: [String] = []
+
+    /// The board's page on `board`, on this clock, writing dates as en_US_POSIX does.
+    func ideas(_ board: BoardStore, keys: KeyNames = KeyNames()) -> BoardModel {
+        let now = self.now
+        return BoardModel(
+            board: board, keys: keys, report: { [weak self] (text: String) in self?.reports.append(text) },
+            clock: { now.value }, timeZone: timeZone, locale: Locale(identifier: "en_US_POSIX"),
+            after: { [weak self] (seconds: TimeInterval, body: @escaping @MainActor @Sendable () -> Void) in
+                self?.later.append((seconds, body))
+            })
+    }
+
+    /// Runs what was asked to run later, as if its time had come.
+    func runLater() {
+        let due = later
+        later = []
+        for entry in due {
+            entry.body()
+        }
+    }
+
     /// Runs the main loop until `done` or 2 seconds: what the main queue was given runs.
     static func waitForMain(until done: () -> Bool = { false }, seconds: TimeInterval = 0.05) {
         let deadline = Date().addingTimeInterval(done() ? 0 : 2)

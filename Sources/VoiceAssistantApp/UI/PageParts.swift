@@ -2,16 +2,19 @@ import AppKit
 import SwiftUI
 
 /// Fades a view in when it appears, rising `rise` points as it does (Windows' `Motion.FadeIn`): the fade takes
-/// `milliseconds`, the rise 60 more. At once while Reduce motion is on.
+/// `milliseconds`, the rise 60 more. At once while Reduce motion is on, and not at all unless it's `fresh` (a note
+/// that was on the board before shows as it is).
 struct FadeInOnAppear: ViewModifier {
     let milliseconds: Int
     let rise: CGFloat
-    @State private var visible = false
-    @State private var risen = false
+    @State private var visible: Bool
+    @State private var risen: Bool
 
-    init(milliseconds: Int, rise: CGFloat = 0) {
+    init(milliseconds: Int, rise: CGFloat = 0, fresh: Bool = true) {
         self.milliseconds = milliseconds
         self.rise = rise
+        _visible = State(initialValue: !fresh)
+        _risen = State(initialValue: !fresh)
     }
 
     func body(content: Content) -> some View {
@@ -21,6 +24,7 @@ struct FadeInOnAppear: ViewModifier {
             .opacity(opacity)
             .offset(y: offset)
             .onAppear {
+                guard !visible || !risen else { return }
                 guard Motion.isEnabled else {
                     visible = true
                     risen = true

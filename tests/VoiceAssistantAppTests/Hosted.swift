@@ -11,6 +11,8 @@ final class Hosted<Content: View> {
     init(_ content: Content, size: CGSize = CGSize(width: 600, height: 400)) {
         _ = NSApplication.shared
         view = NSHostingView(rootView: content)
+        // The view is the size given, as the window's is, whatever its content would like.
+        view.sizingOptions = []
         window = NSWindow(
             contentRect: CGRect(x: -20_000, y: -20_000, width: size.width, height: size.height),
             styleMask: [.borderless], backing: .buffered, defer: false)

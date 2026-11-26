@@ -9,17 +9,20 @@ import VoiceAssistantCore
 @MainActor
 public final class WindowModel: ObservableObject {
     @Published public private(set) var page = AppPage.home
-    /// The list "show my reminders" opened the board at, for the board to highlight; nil for the whole board.
+    /// The list "show my reminders" opened the board at, which the board lights up; nil for the whole board.
     @Published public private(set) var boardList: BoardList?
 
     public let home: HomeModel
     public let settings: SettingsModel
     public let help: HelpModel
+    /// The idea board's page.
+    public let board: BoardModel
 
-    public init(home: HomeModel, settings: SettingsModel, help: HelpModel) {
+    public init(home: HomeModel, settings: SettingsModel, help: HelpModel, board: BoardModel) {
         self.home = home
         self.settings = settings
         self.help = help
+        self.board = board
     }
 
     /// Opens `page`, as its button in the sidebar does (Windows' `ShowPage`): the board opens whole.
@@ -28,17 +31,21 @@ public final class WindowModel: ObservableObject {
         self.page = page
     }
 
-    /// Opens the board, highlighting `list` (Windows' `ShowBoard`).
+    /// Opens the board, lighting up `list` for a moment (Windows' `ShowBoard`).
     public func showBoard(_ list: BoardList?) {
         boardList = list
         page = .ideas
+        if let list {
+            board.highlight(list)
+        }
     }
 
     /// Reads again what may have changed while the window was away, as it shows or comes forward: what macOS allows,
-    /// which reminders are due, "Start when I log in" and the AI brain.
+    /// which reminders are due (on Home and the board), "Start when I log in" and the AI brain.
     public func refresh() {
         home.refreshPermissions()
         home.refreshReminders()
+        board.refresh()
         settings.refresh()
     }
 }
@@ -62,30 +69,34 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
     private let window: NSWindow
     private let content: NSHostingView<MainWindowView>
-    private let notice: @MainActor (String) -> Void
+    private let notice: @MainActor (_ message: String, _ warning: Bool) -> Void
     private var toldAboutMenuBar = false
 
     /// - Parameters:
     ///   - settings: The settings as read at launch.
     ///   - paths: Where settings.json and the logs are.
-    ///   - board: The idea board: Home's "Coming up" (and the board's page).
+    ///   - board: The idea board: its page, and Home's "Coming up".
     ///   - assistant: The assistant host.
     ///   - brain: The AI brain; nil while it's switched off.
     ///   - keys: The keys the texts name.
     ///   - startAtLogin: "Start when I log in".
     ///   - restart: Starts a fresh copy of the app, with its window open when `windowVisible` ("Save and restart").
-    ///   - notice: Says something by the menu bar icon (Windows' tray balloon).
+    ///   - notice: Says something by the menu bar icon (Windows' tray balloon), with a warning sign when `warning`:
+    ///     that the app still runs, the first time the window is closed; what went wrong, when the board can't save a
+    ///     change (Windows' "Something went wrong").
     ///   - permissions: What macOS allows, for Home's "Permissions needed".
     ///   - opener: Finder, TextEdit and System Settings.
     public init(
-        settings: AppSettings, paths: AppPaths, board: BoardStore?, assistant: AssistantControls,
+        settings: AppSettings, paths: AppPaths, board: BoardStore, assistant: AssistantControls,
         brain: BrainControls?, keys: KeyNames, startAtLogin: StartAtLogin,
-        restart: @escaping @MainActor (_ windowVisible: Bool) -> Void, notice: @escaping @MainActor (String) -> Void,
+        restart: @escaping @MainActor (_ windowVisible: Bool) -> Void,
+        notice: @escaping @MainActor (_ message: String, _ warning: Bool) -> Void,
         permissions: Permissions = Permissions(), opener: FileOpener = WorkspaceOpener()
     ) {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+        let ideas = BoardModel(board: board, keys: keys, report: { (problem: String) in notice(problem, true) })
         let model = WindowModel(
             home: HomeModel(
                 assistant: assistant, board: board, keys: keys, permissions: permissions,
@@ -94,7 +105,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
                 settings: settings, paths: paths, assistant: assistant, brain: brain, keys: keys,
                 startAtLogin: startAtLogin, restart: { [weak window] in restart(window?.isVisible ?? false) },
                 opener: opener),
-            help: HelpModel(keys: keys))
+            help: HelpModel(keys: keys), board: ideas)
         let content = NSHostingView(rootView: MainWindowView(model: model))
         content.sizingOptions = [.minSize]
         self.model = model
@@ -193,9 +204,22 @@ public final class MainWindow: NSObject, NSWindowDelegate {
         model.refresh()
     }
 
+    /// Another app (or the app hidden, or the window minimized) took the keyboard: a note being edited is saved, as
+    /// Windows' editor saves when its window loses the keyboard.
+    public func windowDidResignKey(_ notification: Notification) {
+        finishEditing()
+    }
+
+    /// Saves and closes a note being edited on the board: as the window closes, stops being the key window, or the
+    /// app quits.
+    public func finishEditing() {
+        model.board.finishEdit(save: true)
+    }
+
     /// Hides the window and gives the keyboard back to the app before (the floating panels stay: they can't hide);
-    /// the first time, says the app is still running.
+    /// the first time, says the app is still running. A note being edited is saved first.
     func hide() {
+        finishEditing()
         window.orderOut(nil)
         if NSApp.isActive {
             NSApp.hide(nil)
@@ -203,7 +227,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
         if !toldAboutMenuBar {
             toldAboutMenuBar = true
-            notice(Self.stillRunning)
+            notice(Self.stillRunning, false)
         }
     }
 
@@ -280,7 +304,7 @@ struct MainWindowView: View {
         case .home:
             HomePage(model: model.home).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .ideas:
-            IdeasPlaceholderPage().modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
+            IdeasPage(model: model.board).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .settings:
             SettingsPage(model: model.settings).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .help:
@@ -351,19 +375,5 @@ struct Sidebar: View {
         style.padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
         style.fillsWidth = true
         return style
-    }
-}
-
-/// The idea board's place until the board comes (UI part 3).
-struct IdeasPlaceholderPage: View {
-    static let text = "The board comes in the next update. Meanwhile, Home shows what's coming up."
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Theme.heading("Idea board")
-            Theme.label(Self.text, colour: Theme.muted)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

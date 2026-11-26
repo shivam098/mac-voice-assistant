@@ -37,6 +37,9 @@ protocol AppWindow: AnyObject {
 
     /// What macOS allows changed: Home's "Permissions needed" follows.
     func refreshPermissions()
+
+    /// The app is quitting: a note being edited on the board is saved.
+    func finishEditing()
 }
 
 extension MainWindow: AppWindow {
@@ -73,8 +76,8 @@ final class AppUI {
         /// The menu bar item, with the hotkeys its menu shows and what its items do.
         var menuBar: @MainActor (MenuHotkeys, MenuActions) -> MenuBarItem
 
-        /// The window, given how it says something by the menu bar icon.
-        var window: @MainActor (_ notice: @escaping @MainActor (String) -> Void) -> AppWindow
+        /// The window, given how it says something by the menu bar icon: the message, and whether it's a warning.
+        var window: @MainActor (_ notice: @escaping @MainActor (String, Bool) -> Void) -> AppWindow
 
         /// A reminder's card.
         var card: ReminderCards.MakeCard
@@ -139,7 +142,9 @@ final class AppUI {
             commandModeIsIdle: !settings.wakeWordEnabled, keyName: keys.dictation, languageKeys: keys.hotkeys.language,
             minimized: StateFlags.isSet(paths.overlayMinimizedFlag))
         menuBar = parts.menuBar(keys.hotkeys, menuActions())
-        window = parts.window({ [weak self] message in self?.menuBar.showBalloon(message, warning: false) })
+        window = parts.window({ [weak self] (message: String, warning: Bool) in
+            self?.menuBar.showBalloon(message, warning: warning)
+        })
         reminders = ReminderCards(
             board: board,
             openBoard: { [weak self] in self?.window.showBoard(.reminders) },
@@ -179,10 +184,13 @@ final class AppUI {
         window.open(.home)
     }
 
-    /// Takes the UI off the screen and stops listening to the host: the app is quitting. Once is enough.
+    /// Takes the UI off the screen and stops listening to the host: the app is quitting. A note being edited on the
+    /// board is saved first. Once is enough.
     func close() {
         guard !closed else { return }
         closed = true
+        // What's being typed on the board is kept before anything goes (the board saves at once).
+        window.finishEditing()
         reminders.stop()
         for subscription in subscriptions {
             subscription.cancel()

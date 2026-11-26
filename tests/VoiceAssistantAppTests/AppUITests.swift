@@ -131,7 +131,7 @@ final class AppUITests: XCTestCase {
 
     /// The app's notices show as balloons, the ones in force before the UI listened too; ThumbFree's warning stays
     /// under the menu's status line while it holds; Home hears when permissions change; opening the app again brings
-    /// the window; and the window's own notes show as information.
+    /// the window; and the window's own notes show with their sign: information, or a warning for what went wrong.
     @MainActor
     func testTheAppsNoticesWarningsAndRequestsReachTheUI() async throws {
         let rig = try AppUIRig()
@@ -157,8 +157,13 @@ final class AppUITests: XCTestCase {
         rig.showRequested.send(())
         XCTAssertEqual(rig.window.brought, 1)
 
-        rig.window.notice?(MainWindow.stillRunning)
+        rig.window.notice?(MainWindow.stillRunning, false)
         XCTAssertEqual(rig.menuBar.balloons.last, MenuBarRecorder.Shown(MainWindow.stillRunning, warning: false))
+        let problem = "Something went wrong: You don't have permission to save the file “board.json”."
+        rig.window.notice?(problem, true)
+        XCTAssertEqual(
+            rig.menuBar.balloons.last, MenuBarRecorder.Shown(problem, warning: true),
+            "what went wrong has the warning sign, as Windows' unhandled-error balloon")
         await rig.close()
     }
 
@@ -210,6 +215,7 @@ final class AppUITests: XCTestCase {
         rig.makeUI()
         XCTAssertTrue(rig.ui.pill.isOnScreen)
         rig.ui.close()
+        XCTAssertEqual(rig.window.finishedEditing, 1, "a note being edited is saved first")
         XCTAssertTrue(rig.menuBar.removed)
         XCTAssertFalse(rig.ui.pill.isOnScreen)
 
@@ -234,7 +240,7 @@ final class AppUITests: XCTestCase {
         let rig = try AppUIRig(brain: FakeBrain())
         let parts = AppUI.Parts.standard(
             settings: AppSettings(), paths: rig.paths, board: rig.board, host: rig.host, restart: { _ in })
-        let window = try XCTUnwrap(parts.window({ _ in }) as? MainWindow)
+        let window = try XCTUnwrap(parts.window({ _, _ in }) as? MainWindow)
         XCTAssertFalse(window.isVisible)
         window.brainChanged()
         XCTAssertEqual(window.model.settings.brainCard.text, "Ready: Qwen3 4B, running on this Mac.")
@@ -244,6 +250,53 @@ final class AppUITests: XCTestCase {
         window.model.home.toggleListening()
         let paused = await rig.until { rig.host.mode == .paused }
         XCTAssertTrue(paused)
+        await rig.close()
+    }
+
+    /// The app's window shows the app's board, the page "show my reminders" opens lit at the reminders, and a change
+    /// the board can't save is said by the menu bar icon with the warning sign (Windows' "Something went wrong").
+    @MainActor
+    func testTheAppsBoardPageSaysWhenTheBoardCantSaveAChange() async throws {
+        // board.json's folder can't be made: a file has its name.
+        let folder = TempFolder()
+        defer { folder.remove() }
+        let file = folder.file("not-a-folder")
+        TestFiles.write(file, "")
+        let board = try BoardStore(path: (file as NSString).appendingPathComponent("board.json"))
+        let rig = try AppUIRig(board: board)
+        let parts = AppUI.Parts.standard(
+            settings: AppSettings(), paths: rig.paths, board: rig.board, host: rig.host, restart: { _ in })
+        rig.makeUI(window: parts.window)
+        let window = try XCTUnwrap(rig.ui.window as? MainWindow)
+        let ideas = window.model.board
+        ideas.adding[.ideas] = "a voice game for kids"
+        ideas.add(to: .ideas)
+        let balloon = try XCTUnwrap(rig.menuBar.balloons.last)
+        XCTAssertTrue(balloon.message.hasPrefix("Something went wrong: "), balloon.message)
+        XCTAssertTrue(balloon.warning)
+        XCTAssertEqual(ideas.columns[0].notes.map(\.text), ["A voice game for kids"], "the board keeps it in memory")
+
+        window.model.showBoard(.reminders)
+        XCTAssertEqual(window.model.page, .ideas)
+        XCTAssertEqual(ideas.glowing, .reminders, "“show my reminders” lights the list up")
+        await rig.close()
+    }
+
+    /// Quitting saves a note being edited on the board before the UI goes, as Windows' editor saves when its window
+    /// loses the keyboard.
+    @MainActor
+    func testQuittingSavesANoteBeingEdited() async throws {
+        let rig = try AppUIRig()
+        let note = try rig.board.add(.ideas, "a voice game")
+        let parts = AppUI.Parts.standard(
+            settings: AppSettings(), paths: rig.paths, board: rig.board, host: rig.host, restart: { _ in })
+        rig.makeUI(window: parts.window)
+        let window = try XCTUnwrap(rig.ui.window as? MainWindow)
+        window.model.board.beginEdit(note.id)
+        window.model.board.editText = "a voice game for kids"
+        rig.ui.close()
+        XCTAssertNil(window.model.board.editing)
+        XCTAssertEqual(rig.board.items.first?.text, "A voice game for kids")
         await rig.close()
     }
 }
@@ -285,12 +338,21 @@ final class AppUIRig {
 
     var paths: AppPaths { hostRig.paths }
 
-    /// Makes the UI, as the app does once the host is made and before it's told anything.
-    func makeUI(thumbFreeRunsToo: Bool = false) {
+    /// Makes the UI, as the app does once the host is made and before it's told anything; with the window `window`
+    /// makes, rather than the recorder, when it's given.
+    func makeUI(
+        thumbFreeRunsToo: Bool = false,
+        window: (@MainActor (_ notice: @escaping @MainActor (String, Bool) -> Void) -> AppWindow)? = nil
+    ) {
         let events = AppUI.AppEvents(
             notice: notice, thumbFreeChanged: thumbFreeChanged, permissionsChanged: permissionsChanged,
             showRequested: showRequested, thumbFreeRunsToo: thumbFreeRunsToo)
-        ui = AppUI(host: host, app: events, settings: AppSettings(), paths: paths, board: board, parts: parts())
+        var parts = self.parts()
+        if let window {
+            parts.window = window
+        }
+
+        ui = AppUI(host: host, app: events, settings: AppSettings(), paths: paths, board: board, parts: parts)
     }
 
     /// Starts the host, and waits until it listens for the wake word: the window has its status.
@@ -337,7 +399,7 @@ final class AppUIRig {
                 self?.menuBar = menuBar
                 return menuBar
             },
-            window: { notice in
+            window: { (notice: @escaping @MainActor (String, Bool) -> Void) in
                 window.notice = notice
                 return window
             },
@@ -399,7 +461,7 @@ final class MenuBarRecorder: MenuBarItem {
 final class WindowRecorder: AppWindow {
     var isVisible = false
     var permissionsNeeded = false
-    var notice: (@MainActor (String) -> Void)?
+    var notice: (@MainActor (String, Bool) -> Void)?
     private(set) var brought = 0
     private(set) var opened: [AppPage] = []
     private(set) var boards: [BoardList?] = []
@@ -407,6 +469,7 @@ final class WindowRecorder: AppWindow {
     private(set) var languages: [DictationLanguage] = []
     private(set) var brainChanges = 0
     private(set) var permissionChecks = 0
+    private(set) var finishedEditing = 0
 
     func bring() {
         brought += 1
@@ -434,6 +497,10 @@ final class WindowRecorder: AppWindow {
 
     func refreshPermissions() {
         permissionChecks += 1
+    }
+
+    func finishEditing() {
+        finishedEditing += 1
     }
 }
 
