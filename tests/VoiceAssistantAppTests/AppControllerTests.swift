@@ -58,6 +58,30 @@ final class AppControllerTests: XCTestCase {
         source.stop()
         XCTAssertTrue(inner.stopped)
     }
+
+    /// The notices still in force reach a handler added after launch too, oldest first: a notice of a topic replaces
+    /// the topic's earlier one, and one withdrawn, or told once, isn't sent again.
+    func testNoticesInForceReachAHandlerAddedLater() {
+        let notices = NoticeEvent()
+        let early = Locked<[String]>([])
+        notices.subscribe { message in early.update { $0.append(message) } }
+        let hotkey = "⌃⇧Z (paste last dictation) is used by another app."
+        let fnKey = "Voice Assistant can't see the Fn key yet: allow it in System Settings."
+        let rightOption = "Voice Assistant can't see the Right Option key yet: allow it in System Settings."
+        notices.send(hotkey, topic: AppController.NoticeTopic.hotkey("paste last dictation"))
+        notices.send(fnKey, topic: AppController.NoticeTopic.dictationKey)
+        notices.send(AppController.thumbFreeNote, topic: AppController.NoticeTopic.thumbFree)
+        notices.send("Couldn't restart. Quit from the menu bar and start Voice Assistant again.")
+        notices.withdraw(AppController.NoticeTopic.thumbFree)
+        notices.send(rightOption, topic: AppController.NoticeTopic.dictationKey)
+
+        let late = Locked<[String]>([])
+        notices.subscribe { message in late.update { $0.append(message) } }
+
+        XCTAssertEqual(early.value.count, 5)
+        XCTAssertEqual(late.value, [hotkey, rightOption])
+        XCTAssertEqual(notices.inForce, [hotkey, rightOption])
+    }
 }
 
 /// Key events from the test rather than a Quartz event tap.

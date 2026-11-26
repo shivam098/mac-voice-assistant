@@ -36,7 +36,7 @@ jobs:
           swift --version
 
       # The Mac workflow's last build, to start from; this workflow keeps none of its own.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}-self-test

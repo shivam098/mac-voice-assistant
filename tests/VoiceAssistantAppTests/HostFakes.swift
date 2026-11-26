@@ -177,10 +177,20 @@ final class FakeModel: SpeechModel, @unchecked Sendable {
     }
 }
 
-/// Silero that finds speech in all of the audio.
+/// Silero that finds speech in all of the audio, or in none of it.
 final class FakeDetector: SpeechDetecting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var finds = true
+
+    /// False: no speech anywhere, as in music or noise.
+    var findsSpeech: Bool {
+        get { lock.withLock { finds } }
+        set { lock.withLock { finds = newValue } }
+    }
+
     func detect(_ samples: [Float]) throws -> [SpeechRegion] {
-        samples.isEmpty ? [] : [SpeechRegion(start: 0, end: Double(samples.count) / 16_000)]
+        guard findsSpeech, !samples.isEmpty else { return [] }
+        return [SpeechRegion(start: 0, end: Double(samples.count) / 16_000)]
     }
 
     func close() {}
@@ -547,6 +557,9 @@ enum TestAudio {
 
     /// A quiet room, a phrase, and the pause that ends it.
     static func phrase(_ seconds: Double = 1) -> [Float] { silence(0.5) + tone(seconds) + silence(1) }
+
+    /// A phrase while voice typing, which a longer pause ends (`dictationEndSilenceMs`).
+    static func typedPhrase(_ seconds: Double) -> [Float] { silence(0.5) + tone(seconds) + silence(1.5) }
 }
 
 /// Waits until `condition` holds, checking every 20 ms, for `timeout` seconds at most. False if it never did.
