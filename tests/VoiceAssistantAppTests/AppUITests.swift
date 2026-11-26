@@ -215,6 +215,7 @@ final class AppUITests: XCTestCase {
         rig.makeUI()
         XCTAssertTrue(rig.ui.pill.isOnScreen)
         rig.ui.close()
+        XCTAssertEqual(rig.window.finishedEditing, 1, "a note being edited is saved first")
         XCTAssertTrue(rig.menuBar.removed)
         XCTAssertFalse(rig.ui.pill.isOnScreen)
 
@@ -278,6 +279,24 @@ final class AppUITests: XCTestCase {
         window.model.showBoard(.reminders)
         XCTAssertEqual(window.model.page, .ideas)
         XCTAssertEqual(ideas.glowing, .reminders, "“show my reminders” lights the list up")
+        await rig.close()
+    }
+
+    /// Quitting saves a note being edited on the board before the UI goes, as Windows' editor saves when its window
+    /// loses the keyboard.
+    @MainActor
+    func testQuittingSavesANoteBeingEdited() async throws {
+        let rig = try AppUIRig()
+        let note = try rig.board.add(.ideas, "a voice game")
+        let parts = AppUI.Parts.standard(
+            settings: AppSettings(), paths: rig.paths, board: rig.board, host: rig.host, restart: { _ in })
+        rig.makeUI(window: parts.window)
+        let window = try XCTUnwrap(rig.ui.window as? MainWindow)
+        window.model.board.beginEdit(note.id)
+        window.model.board.editText = "a voice game for kids"
+        rig.ui.close()
+        XCTAssertNil(window.model.board.editing)
+        XCTAssertEqual(rig.board.items.first?.text, "A voice game for kids")
         await rig.close()
     }
 }
@@ -450,6 +469,7 @@ final class WindowRecorder: AppWindow {
     private(set) var languages: [DictationLanguage] = []
     private(set) var brainChanges = 0
     private(set) var permissionChecks = 0
+    private(set) var finishedEditing = 0
 
     func bring() {
         brought += 1
@@ -477,6 +497,10 @@ final class WindowRecorder: AppWindow {
 
     func refreshPermissions() {
         permissionChecks += 1
+    }
+
+    func finishEditing() {
+        finishedEditing += 1
     }
 }
 

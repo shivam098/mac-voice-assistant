@@ -37,6 +37,9 @@ protocol AppWindow: AnyObject {
 
     /// What macOS allows changed: Home's "Permissions needed" follows.
     func refreshPermissions()
+
+    /// The app is quitting: a note being edited on the board is saved.
+    func finishEditing()
 }
 
 extension MainWindow: AppWindow {
@@ -181,10 +184,13 @@ final class AppUI {
         window.open(.home)
     }
 
-    /// Takes the UI off the screen and stops listening to the host: the app is quitting. Once is enough.
+    /// Takes the UI off the screen and stops listening to the host: the app is quitting. A note being edited on the
+    /// board is saved first. Once is enough.
     func close() {
         guard !closed else { return }
         closed = true
+        // What's being typed on the board is kept before anything goes (the board saves at once).
+        window.finishEditing()
         reminders.stop()
         for subscription in subscriptions {
             subscription.cancel()

@@ -130,6 +130,10 @@ public final class BoardModel: ObservableObject {
     private let after: @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> Void
     /// Each note's list and state when the board was last drawn; nil before the first time.
     private var drawn: [String: Placement]?
+    /// The notes that came, moved, or were ticked or unticked since the board was last drawn: they fade in, and stay
+    /// marked until they've had the time to (a change made here is drawn twice, once at once and once when the board
+    /// tells, before SwiftUI draws it).
+    private var fresh: Set<String> = []
     /// The edited note's text when its editor opened.
     private var textBeforeEdit = ""
     private var settles = 0
@@ -187,13 +191,14 @@ public final class BoardModel: ObservableObject {
     public func refresh() {
         let items = board.items
         let now = clock()
-        var fresh = Set<String>()
+        var changed = Set<String>()
         if let drawn {
             for item in items where drawn[item.id] != Placement(list: item.list, done: item.done) {
-                fresh.insert(item.id)
+                changed.insert(item.id)
             }
         }
 
+        fresh.formUnion(changed)
         var shown: [Column] = []
         for list in BoardList.allCases {
             shown.append(column(list, items, now: now, fresh: fresh))
@@ -210,7 +215,7 @@ public final class BoardModel: ObservableObject {
             editing = nil
         }
 
-        if !fresh.isEmpty {
+        if !changed.isEmpty {
             settles += 1
             let settle = settles
             after(0.5) { [weak self] in self?.settle(settle) }
@@ -561,6 +566,7 @@ public final class BoardModel: ObservableObject {
     /// The notes that faded in show as they are from now on: opening the page again doesn't fade them.
     private func settle(_ settle: Int) {
         guard settle == settles else { return }
+        fresh = []
         var settled = columns
         for column in settled.indices {
             for note in settled[column].notes.indices {

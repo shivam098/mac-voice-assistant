@@ -204,9 +204,22 @@ public final class MainWindow: NSObject, NSWindowDelegate {
         model.refresh()
     }
 
+    /// Another app (or the app hidden, or the window minimized) took the keyboard: a note being edited is saved, as
+    /// Windows' editor saves when its window loses the keyboard.
+    public func windowDidResignKey(_ notification: Notification) {
+        finishEditing()
+    }
+
+    /// Saves and closes a note being edited on the board: as the window closes, stops being the key window, or the
+    /// app quits.
+    public func finishEditing() {
+        model.board.finishEdit(save: true)
+    }
+
     /// Hides the window and gives the keyboard back to the app before (the floating panels stay: they can't hide);
-    /// the first time, says the app is still running.
+    /// the first time, says the app is still running. A note being edited is saved first.
     func hide() {
+        finishEditing()
         window.orderOut(nil)
         if NSApp.isActive {
             NSApp.hide(nil)

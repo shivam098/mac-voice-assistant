@@ -304,11 +304,14 @@ final class IdeasPageTests: XCTestCase {
 
         model.adding[.ideas] = "new"
         model.add(to: .ideas)
-        XCTAssertEqual(model.columns[0].notes.map(\.fresh), [true, false])
+        // The board tells of the change too, which draws the board again before SwiftUI draws it.
+        PageRig.waitForMain(until: { true })
+        XCTAssertEqual(model.columns[0].notes.map(\.fresh), [true, false], "still new when it's drawn")
         rig.runLater()
         XCTAssertEqual(model.columns[0].notes.map(\.fresh), [false, false], "drawn as they are from then on")
 
         model.setDone(old.id, true)
+        PageRig.waitForMain(until: { true })
         XCTAssertEqual(model.columns[0].notes.last?.fresh, true, "ticked")
         XCTAssertNotEqual(
             model.columns[0].notes.last?.key, old.id, "a note ticked is drawn afresh (and fades in) as on Windows")

@@ -40,6 +40,29 @@ final class MainWindowTests: XCTestCase {
     }
 
     @MainActor
+    func testANoteBeingEditedIsSavedWhenTheWindowClosesOrAnotherAppComesInFront() throws {
+        let rig = PageRig()
+        defer { rig.folder.remove() }
+        let board = try rig.board()
+        let note = try board.add(.ideas, "a voice game")
+        let window = try Self.window(rig, board: board)
+        let ideas = window.model.board
+        ideas.beginEdit(note.id)
+        ideas.editText = "a voice game for kids"
+        XCTAssertFalse(window.windowShouldClose(NSWindow()))
+        XCTAssertNil(ideas.editing)
+        XCTAssertEqual(board.items.first?.text, "A voice game for kids", "closing the window saves it")
+
+        ideas.beginEdit(note.id)
+        ideas.editText = "a voice game for grown-ups"
+        window.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertNil(ideas.editing)
+        XCTAssertEqual(
+            board.items.first?.text, "A voice game for grown-ups",
+            "another app in front saves it, as Windows' editor saves when its window loses the keyboard")
+    }
+
+    @MainActor
     func testTheSidebarOpensPagesAndTheBoardOpensAtAList() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }
@@ -129,14 +152,13 @@ final class MainWindowTests: XCTestCase {
 
     @MainActor
     private static func window(
-        _ rig: PageRig, notice: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
+        _ rig: PageRig, board: BoardStore? = nil, notice: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         restart: @escaping @MainActor (Bool) -> Void = { _ in }
     ) throws -> MainWindow {
         _ = NSApplication.shared
         let window = MainWindow(
-            settings: AppSettings(), paths: rig.paths, board: try rig.board(), assistant: rig.assistant,
-            brain: rig.brain,
-            keys: KeyNames(), startAtLogin: rig.login.item, restart: restart, notice: notice,
+            settings: AppSettings(), paths: rig.paths, board: try board ?? rig.board(), assistant: rig.assistant,
+            brain: rig.brain, keys: KeyNames(), startAtLogin: rig.login.item, restart: restart, notice: notice,
             permissions: Permissions(system: rig.system), opener: rig.opener)
         return window
     }
