@@ -49,6 +49,8 @@ final class FloatingPanel: NSPanel {
         // The app is never active while you use the panels, and AppKit shows tooltips (SwiftUI's `.help`) only in an
         // active app unless the window says otherwise: the pill's badge and minimize button have tooltips.
         panel.allowsToolTipsWhenApplicationIsInactive = true
+        // Hiding the app (closing its window, ⌘H) leaves the pill, the cards and the balloon on the screen.
+        panel.canHide = false
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

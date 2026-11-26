@@ -84,15 +84,23 @@ extension View {
 
 /// The theme's button (Windows' `Theme.Button` and `Theme.Animate`): flat, rounded 6, 13-point text, its background
 /// easing to the hover colour while the mouse is over it (140 ms) and to the pressed colour while it's held (60 ms,
-/// and 120 ms back). Half transparent when disabled.
+/// and 120 ms back). Half transparent when disabled. The window's sidebar items are the same button without a border,
+/// larger and as wide as the sidebar, whose resting colour eases to show the page that's open (`SetRestColor`).
 public struct ThemeButtonStyle: ButtonStyle {
     public var normal: Colour
     public var hover: Colour
     public var pressed: Colour
     public var foreground: Colour
-    public var border: Colour
+    /// Nil: no border.
+    public var border: Colour?
+    public var fontSize: CGFloat = 13
+    public var weight: Font.Weight = .regular
+    /// Inside the border, as Windows' Padding.
+    public var padding = EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
+    /// As wide as it may be, its text on the left.
+    public var fillsWidth = false
 
-    public init(normal: Colour, hover: Colour, pressed: Colour, foreground: Colour, border: Colour) {
+    public init(normal: Colour, hover: Colour, pressed: Colour, foreground: Colour, border: Colour?) {
         self.normal = normal
         self.hover = hover
         self.pressed = pressed
@@ -123,19 +131,31 @@ private struct ThemeButton: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        let fill = configuration.isPressed ? style.pressed : hovering ? style.hover : style.normal
+        // Each value on its own, so the chain below stays quick to type-check.
+        let fill: Colour = configuration.isPressed ? style.pressed : hovering ? style.hover : style.normal
+        // Windows' border is outside its padding; SwiftUI draws the border inside the padding.
+        let edge: CGFloat = style.border == nil ? 0 : 1
+        let border: Colour = style.border ?? Colour(0xFFFFFF, alpha: 0)
+        let padding = EdgeInsets(
+            top: style.padding.top + edge, leading: style.padding.leading + edge, bottom: style.padding.bottom + edge,
+            trailing: style.padding.trailing + edge)
+        let width: CGFloat? = style.fillsWidth ? CGFloat.infinity : nil
+        let press: Int = configuration.isPressed ? 60 : 120
+        let opacity: Double = isEnabled ? 1 : 0.5
+        let shape = RoundedRectangle(cornerRadius: 6)
         configuration.label
-            .font(.system(size: 13))
+            .font(.system(size: style.fontSize, weight: style.weight))
             .foregroundStyle(Color(style.foreground))
-            // Windows' padding is 14 by 6 inside a 1-point border; SwiftUI draws the border inside the padding.
-            .padding(EdgeInsets(top: 7, leading: 15, bottom: 7, trailing: 15))
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(fill)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(style.border), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .padding(padding)
+            .frame(maxWidth: width, alignment: .leading)
+            .background(shape.fill(Color(fill)))
+            .overlay(shape.strokeBorder(Color(border), lineWidth: edge))
+            .contentShape(shape)
             .background(HoverTracker { hovering = $0 })
-            .animation(Motion.animation(configuration.isPressed ? 60 : 120), value: configuration.isPressed)
+            .animation(Motion.animation(press), value: configuration.isPressed)
             .animation(Motion.animation(140), value: hovering)
-            .opacity(isEnabled ? 1 : 0.5)
+            .animation(Motion.animation(140), value: style.normal)
+            .opacity(opacity)
     }
 }
 
