@@ -61,6 +61,30 @@ final class AppsTests: XCTestCase {
         XCTAssertNil(rig.desktop.foregroundWindow())
     }
 
+    /// Accessibility answers that no app has the keys while Chrome, just started, is in front and answers only for
+    /// itself: the app in front, with its focused window, else its main one. Not an app without a Dock icon, nor this
+    /// one.
+    func testTheAppInFrontWhenNoAppHasTheKeys() {
+        let rig = Rig()
+        let window = FakeElement.window(pid: 9, title: "Nav Lab - Google Chrome", number: 90)
+        rig.front(9, "com.google.Chrome", "Google Chrome", window: window)
+        rig.ax.focusedApp = nil
+        XCTAssertNil(rig.desktop.foregroundWindow())
+
+        rig.workspace.front = rig.workspace.app(9)
+        XCTAssertEqual(90, rig.desktop.foregroundWindow()?.handle)
+        let app = rig.ax.apps[9]
+        app?[kAXFocusedWindowAttribute] = nil
+        app?[kAXMainWindowAttribute] = window
+        XCTAssertEqual(90, rig.desktop.foregroundWindow()?.handle)
+
+        rig.workspace.front?.isRegular = false
+        XCTAssertNil(rig.desktop.foregroundWindow())
+        let own = "io.github.shivam098.voiceassistant"
+        rig.workspace.front = RunningApp(processIdentifier: Rig.own, bundleIdentifier: own)
+        XCTAssertNil(rig.desktop.foregroundWindow())
+    }
+
     /// An app taking the keys without a window (Finder with none open) is still in front: handle 0, no title.
     func testAnAppWithoutAWindow() {
         let rig = Rig()

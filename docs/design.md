@@ -70,9 +70,22 @@ The porting guide's capability map is the plan. These are the points it leaves o
   Safari join the apps that exist on both.
 - **Finding apps:** the app bundles in `/Applications`, `/System/Applications` and `~/Applications`, by name and display
   name, instead of the Start menu. Misheard names are matched as on Windows.
-- **Browser tabs:** Chrome, Edge and Brave describe their tabs to Accessibility once `AXEnhancedUserInterface` is set
-  (the porting guide's starred item: measure it first). Safari's tabs come from AppleScript, which needs the Automation
-  permission; it's asked for the first time you ask for a Safari tab.
+- **Browser tabs:** Chrome, Edge, Brave and the other Chromium browsers describe their tab strips to Accessibility, as
+  Firefox does. Their pages, and Electron apps', may be described only once an assistive app asks
+  (`AXEnhancedUserInterface`, `AXManualAccessibility`): the host's ThumbFree reader asks each app that comes to the
+  front, and a scan asks one the desktop hasn't asked yet, then waits up to 2.5 s for its page. Chromium turns its
+  page descriptions on 2 s after the last ask, and answers each ask with "no such attribute" while acting on it, so
+  the desktop asks each browser once. Safari's tabs come from AppleScript, which needs the Automation permission;
+  it's asked for the first time Safari's tabs are wanted, and they're listed from then on.
+- **Clicking by name and the numbers:** a scan walks the window's Accessibility tree, as UI Automation's `FindAll`
+  does on Windows: the buttons, links, tabs, menu items, checkboxes, radio buttons, pop-up buttons and rows that are
+  enabled, named and show (inside the window and every scroll area around them), at most 1,500. A click uses
+  Accessibility's own actions (`AXPress`, `AXSelected`, `AXDisclosing`), as Windows uses UI Automation's patterns.
+  Rows get a real click when it lands on them: a web chat list opens a chat only then, and Finder's sidebar goes to the
+  folder only then. Anything whose action is refused gets one too, only where the click lands in the window, which
+  Accessibility's system-wide hit test says (the window server's list can't tell which windows let clicks through:
+  the Dock's spans the screen). The numbers and the click outline are a borderless panel above other windows that
+  clicks go through and that never takes the focus.
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.
@@ -139,7 +152,7 @@ guide explains each one, like ThumbFree's.
 |---|---|---|
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
-| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Next |
+| 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Part 1 (apps, windows, keys, typing and focus) is done; part 2 (navigation: scans and clicks, browser tabs, the numbers) is in review, its integration tests passing on GitHub's runner in Chrome, Edge, Safari, Finder, TextEdit and System Settings; part 3 (the NavigationLab acceptance run, through the self-test) is next |
 | 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | The menu bar, the pill, the reminder cards and the window (Home, Settings and What you can say) are done, drawn on CI and wired to the assistant, and the App workflow checks that the app starts into them; the idea board's page is in review |
 | 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
 | 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization | |

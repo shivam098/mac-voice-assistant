@@ -161,6 +161,26 @@ final class KeysTests: XCTestCase {
     }
 }
 
+/// The keyboard layout in use, read through ThumbFreeMac's `PasteTyper.SystemKeys.keyCode(typing:with:)`.
+final class SystemKeyLayoutTests: XCTestCase {
+    /// On the main thread the keys are found at once: every letter has one, with ⌘ held and without, in any layout a Mac
+    /// types Latin letters with. GitHub's runners type with the US layout.
+    @MainActor
+    func testFindsTheKeysOfTheLayoutInUse() {
+        let layout = SystemKeyLayout()
+        for letter in "abcdefghijklmnopqrstuvwxyz" {
+            XCTAssertNotNil(layout.keyCode(typing: letter, command: false), String(letter))
+            XCTAssertNotNil(layout.keyCode(typing: letter, command: true), String(letter))
+        }
+
+        if ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" {
+            XCTAssertEqual(CGKeyCode(kVK_ANSI_Z), layout.keyCode(typing: "z", command: true))
+            XCTAssertEqual(CGKeyCode(kVK_ANSI_RightBracket), layout.keyCode(typing: "]", command: false))
+            XCTAssertEqual(CGKeyCode(kVK_ANSI_7), layout.keyCode(typing: "7", command: false))
+        }
+    }
+}
+
 /// Typing through ThumbFreeMac's `PasteTyper`.
 final class TypingTests: XCTestCase {
     func testPastesWithLineBreaksAsSpacesAndPutsThePasteboardBack() throws {

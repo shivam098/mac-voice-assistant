@@ -39,6 +39,15 @@ final class FakeElement {
     var actions: [String] = []
     var changes: [String] = []
 
+    /// Every attribute set asked of it, whatever it came to.
+    var tried: [String] = []
+
+    /// The actions it says it can do (AXUIElementCopyActionNames).
+    var actionNames: [String] = []
+
+    /// What performing an action or setting an attribute on it comes to (after its own rules).
+    var outcome = AXOutcome.done
+
     init(pid: pid_t = 42, role: String? = nil, subrole: String? = nil, title: String? = nil, frame: CGRect? = nil) {
         self.pid = pid
         self.frame = frame
@@ -203,6 +212,8 @@ final class FakeAX: AXSystem {
 
     func set(_ attribute: String, _ value: Bool, of element: AnyObject) -> AXOutcome {
         guard let fake = element as? FakeElement, fake.answers else { return .noAnswer }
+        fake.tried.append("\(attribute)=\(value)")
+        guard fake.outcome == .done else { return fake.outcome }
         fake.changes.append("\(attribute)=\(value)")
         onSet?(fake, attribute, value)
         if attribute == kAXFocusedAttribute, value {
@@ -210,8 +221,9 @@ final class FakeAX: AXSystem {
             focused = fake
         }
 
-        if attribute == kAXMinimizedAttribute {
-            fake[kAXMinimizedAttribute] = value
+        if attribute == kAXMinimizedAttribute || attribute == kAXSelectedAttribute
+            || attribute == kAXDisclosingAttribute {
+            fake[attribute] = value
         }
 
         return .done
@@ -219,6 +231,7 @@ final class FakeAX: AXSystem {
 
     func perform(_ action: String, on element: AnyObject) -> AXOutcome {
         guard let fake = element as? FakeElement, fake.answers else { return .noAnswer }
+        guard fake.outcome == .done else { return fake.outcome }
         fake.actions.append(action)
         onPerform?(fake, action)
         return .done
@@ -238,11 +251,40 @@ final class FakeAX: AXSystem {
         element === other
     }
 
+    /// Called with each element `node` reads, before it's read: a page that's described only after a while.
+    var onNode: ((FakeElement) -> Void)?
+
     func node(_ element: AnyObject) throws -> AXNode {
         let fake = try lookup(element)
+        onNode?(fake)
+        let enabled = fake[kAXEnabledAttribute]
         return AXNode(
             role: fake[kAXRoleAttribute] as? String, subrole: fake[kAXSubroleAttribute] as? String,
-            children: fake.children)
+            children: fake.children, title: fake[kAXTitleAttribute] as? String,
+            label: fake[kAXDescriptionAttribute] as? String,
+            enabled: (enabled as? Bool) ?? (enabled as? Int).map { $0 != 0 }, frame: fake.frame)
+    }
+
+    func actions(of element: AnyObject) throws -> [String] {
+        try lookup(element).actionNames
+    }
+
+    /// What `element(at:of:)` finds; nil: nothing.
+    var hit: FakeElement?
+    var pointsHit: [CGPoint] = []
+
+    func element(at point: CGPoint, of application: AnyObject) throws -> AnyObject? {
+        _ = try lookup(application)
+        pointsHit.append(point)
+        return hit
+    }
+
+    /// What the system-wide `elementAtPoint` finds; nil: nothing.
+    var screenHit: FakeElement?
+
+    func elementAtPoint(_ point: CGPoint) throws -> AnyObject? {
+        guard answers else { throw AXNoAnswer() }
+        return screenHit
     }
 
     /// The app `pid`, taking the keys with `window` (and the focus on `element`, else nothing).
@@ -313,6 +355,16 @@ final class FakeWorkspace: WorkspaceSystem {
     }
 
     func windowNumbersFrontToBack() -> [Int] { windowOrder }
+
+    /// The window server's windows, by number.
+    var serverWindows: [Int: ServerWindow] = [:]
+
+    func serverWindow(_ number: Int) -> ServerWindow? { serverWindows[number] }
+
+    /// The processes of apps built with Electron.
+    var electronApps: Set<pid_t> = []
+
+    func isElectron(_ app: RunningApp) -> Bool { electronApps.contains(app.processIdentifier) }
 
     func screens() async -> [ScreenArea] { screenAreas }
 
@@ -458,6 +510,70 @@ final class LogLines: @unchecked Sendable {
     func add(_ line: String) {
         lock.withLock { written.append(line) }
     }
+
+    func clear() {
+        lock.withLock { written.removeAll() }
+    }
+}
+
+/// The pointer: the windows a click would land in, and the clicks.
+final class FakePointer: PointerSystem {
+    /// The windows at every point, front-most first, as `windowNumber(at:below:)` goes down them.
+    var windowsAtPoint: [Int] = []
+    var clicks: [CGPoint] = []
+    var onClick: ((CGPoint) -> Void)?
+    var clickWorks = true
+
+    func windowNumber(at point: CGPoint, below: Int) -> Int? {
+        let next = below == 0 ? 0 : (windowsAtPoint.firstIndex(of: below) ?? windowsAtPoint.count) + 1
+        return next < windowsAtPoint.count ? windowsAtPoint[next] : nil
+    }
+
+    func click(at point: CGPoint) -> Bool {
+        clicks.append(point)
+        onClick?(point)
+        return clickWorks
+    }
+}
+
+/// AppleScript: what each script prints, and the Automation permission.
+final class FakeScripts: ScriptSystem, @unchecked Sendable {
+    private let lock = NSLock()
+    private var permission = AutomationPermission.granted
+    private var asks: [Bool] = []
+
+    /// The scripts run, with their arguments.
+    var ran: [(source: String, arguments: [String])] = []
+
+    /// What a script comes to; failing by default.
+    var onRun: ((String, [String]) -> ScriptResult)?
+
+    /// What asking for the permission comes to.
+    var answer = AutomationPermission.granted
+
+    var automationPermission: AutomationPermission {
+        get { lock.withLock { permission } }
+        set { lock.withLock { permission = newValue } }
+    }
+
+    /// Whether each look at the permission asked the user.
+    var asked: [Bool] { lock.withLock { asks } }
+
+    func run(_ source: String, arguments: [String], timeout: TimeInterval) -> ScriptResult {
+        ran.append((source, arguments))
+        return onRun?(source, arguments) ?? .failed(nil)
+    }
+
+    func automation(_ bundleIdentifier: String, ask: Bool) -> AutomationPermission {
+        lock.withLock {
+            asks.append(ask)
+            if ask {
+                permission = answer
+            }
+
+            return permission
+        }
+    }
 }
 
 /// A desktop on fakes.
@@ -467,6 +583,8 @@ final class Rig {
     let keys = FakeKeys()
     let pasteboard = FakePasteboard()
     let layout = FakeLayout()
+    let pointer = FakePointer()
+    let scripts = FakeScripts()
     let permissions = FakePermissions()
     let time = FakeClock()
     let log = LogLines()
@@ -480,8 +598,8 @@ final class Rig {
         let lines = self.log
         let typer = PasteTyper(pasteboard: pasteboard, keys: keys, sleep: { _ in }, now: { 0 })
         return MacDesktop(
-            ax: ax, workspace: workspace, typer: typer, keys: keys, layout: layout,
-            permissions: Permissions(system: permissions), clock: time.clock, ownProcess: Self.own,
+            ax: ax, workspace: workspace, typer: typer, keys: keys, layout: layout, pointer: pointer,
+            scripts: scripts, permissions: Permissions(system: permissions), clock: time.clock, ownProcess: Self.own,
             insertMethod: { method }, log: { lines.add($0) })
     }()
 

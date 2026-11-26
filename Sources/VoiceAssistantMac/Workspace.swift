@@ -73,6 +73,23 @@ public struct ScreenArea: Equatable, Sendable {
     }
 }
 
+/// A window as the window server knows it (CGWindowListCopyWindowInfo).
+public struct ServerWindow: Equatable, Sendable {
+    public var number: Int
+
+    /// The process it belongs to.
+    public var owner: pid_t
+
+    /// Its frame, in Accessibility's coordinates.
+    public var bounds: CGRect
+
+    public init(number: Int, owner: pid_t, bounds: CGRect) {
+        self.number = number
+        self.owner = owner
+        self.bounds = bounds
+    }
+}
+
 /// What the desktop asks NSWorkspace, NSRunningApplication, the window server and the file system, behind a protocol
 /// so it can be tested without other apps (`FakeWorkspace` in the tests).
 public protocol WorkspaceSystem: AnyObject {
@@ -100,6 +117,13 @@ public protocol WorkspaceSystem: AnyObject {
 
     /// The numbers of the windows on screen, front-most first (CGWindowListCopyWindowInfo).
     func windowNumbersFrontToBack() -> [Int]
+
+    /// The window with this number (CGWindowListCopyWindowInfo); nil when there's none.
+    func serverWindow(_ number: Int) -> ServerWindow?
+
+    /// The app is built with Electron (its bundle holds Electron Framework.framework), whose pages are described only
+    /// once an assistive app asks (AXManualAccessibility).
+    func isElectron(_ app: RunningApp) -> Bool
 
     /// The screens, each one's frame and the part apps use (without the menu bar and the Dock), in Accessibility's
     /// coordinates: points from the top left of the main display, y down.
@@ -182,6 +206,22 @@ public final class SystemWorkspace: WorkspaceSystem, @unchecked Sendable {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
         return list.compactMap { $0[kCGWindowNumber as String] as? Int }
+    }
+
+    public func serverWindow(_ number: Int) -> ServerWindow? {
+        guard number > 0, let id = CGWindowID(exactly: number),
+              let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
+              let info = list.first(where: { ($0[kCGWindowNumber as String] as? Int) == number }),
+              let owner = (info[kCGWindowOwnerPID as String] as? Int).flatMap({ pid_t(exactly: $0) }),
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
+        return ServerWindow(number: number, owner: owner, bounds: frame)
+    }
+
+    public func isElectron(_ app: RunningApp) -> Bool {
+        guard let bundle = app.bundleURL else { return false }
+        let framework = bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        return FileManager.default.fileExists(atPath: framework.path)
     }
 
     /// NSScreen's frames, which start at the bottom left of the main display (the first screen, with the menu bar),
