@@ -154,7 +154,8 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
 - [ ] **Pause listening, then tap Fn.** Dictation still works while paused.
 - [ ] **⌃⇧Z.** The last dictation is typed again where the cursor is.
 - [ ] **With a Dvorak or AZERTY keyboard layout:** ⌃⇧Z is the key that types Z, and switching layouts moves it.
-- [ ] **If another app already uses one of the three hotkeys:** Voice Assistant says which one it couldn't have.
+- [ ] **If another app already uses one of the three hotkeys:** Voice Assistant says which one it couldn't have. On a
+  first launch, with Accessibility not yet allowed, that balloon and the Fn key's show one after the other.
 
 ### The idea board and reminders
 
@@ -240,6 +241,11 @@ It needs Apple silicon and macOS 13.3 or later. On an Intel Mac, check only that
   Login Items. Log out and in again: Voice Assistant starts in the menu bar, with its window closed. Turning it off
   takes it out of Login Items.
 - [ ] **Settings › Forget what I've learned.** What it had learned (the second phrasing above) is forgotten.
+- [ ] **Type `sig = "Thanks" -- me` into Settings › Snippets and choose Save.** `settings.json` has it exactly as
+  typed: straight quotes and two hyphens, whatever System Settings › Keyboard › Text Input says about smart quotes,
+  dashes and spelling.
+- [ ] **VoiceOver (⌘F5) on Home and Settings.** The menus, boxes and buttons say what they're for ("Dictation
+  language", "Allow Microphone"), and the sidebar says which page is open.
 
 ### ThumbFree for Mac side by side
 

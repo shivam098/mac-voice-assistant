@@ -1,56 +1,152 @@
 import AppKit
 import SwiftUI
 
-/// A short message by the menu bar icon, as Windows' tray balloon (`TrayIcon.ShowBalloon`): "Voice Assistant", the
-/// message and a warning or information sign, for 4 seconds or until it's clicked; a newer one takes its place. It's a
-/// floating panel like the pill, so it never takes the focus, and it needs no permission, as a notification would.
+/// Short messages by the menu bar icon, as Windows' tray balloons (`TrayIcon.ShowBalloon`): "Voice Assistant", the
+/// message and a warning or information sign, for 4 seconds or until it's clicked. One shows at a time, and the next
+/// waits for it to go, as Windows shows its balloons one after another: at launch the app can say several things
+/// within a few milliseconds (a hotkey another app has, the Fn key it can't see yet). A message just like the one
+/// showing or one waiting isn't said again, and at most 3 wait (the oldest go first). It's a floating panel like the
+/// pill, so it never takes the focus, and it needs no permission, as a notification would.
 @MainActor
 final class Balloon {
-    /// How long it stays (Windows' 4000 ms).
+    /// What a balloon says: the message, with a warning sign or an information sign.
+    struct Notice: Equatable {
+        let message: String
+        let warning: Bool
+    }
+
+    /// How long one stays (Windows' 4000 ms).
     static let shownFor: TimeInterval = 4
 
-    private var panel: FloatingPanel?
-    private var timer: Timer?
+    /// How many wait their turn at most.
+    static let waitingAtMost = 3
 
-    /// Shows `message` under `anchor`, the menu bar icon's frame on screen (nil when it has none).
-    func show(_ message: String, warning: Bool, anchor: CGRect?) {
-        close()
-        let view = BalloonView(message: message, warning: warning) { [weak self] in self?.dismiss() }
-        let iconScreen: NSScreen? = anchor.flatMap { icon in NSScreen.screens.first { $0.frame.intersects(icon) } }
-        let screen: NSScreen? = iconScreen ?? NSScreen.main ?? NSScreen.screens.first
-        guard let area = screen?.visibleFrame else { return }
-        let panel = FloatingPanel.make(FirstClickHostingView(rootView: view))
-        panel.setFrame(Self.frame(size: FloatingPanel.size(of: view), anchor: anchor, area: area), display: true)
-        panel.orderFrontRegardless()
-        panel.fadeIn(milliseconds: 180)
-        self.panel = panel
-        let timer = Timer(timeInterval: Self.shownFor, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.dismiss()
-            }
-        }
+    /// The one on the screen, or going.
+    private(set) var showing: Notice?
+    /// The ones waiting their turn, first first.
+    private(set) var waiting: [Notice] = []
 
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+    private let present: @MainActor (Notice, CGRect?, _ clicked: @escaping @MainActor () -> Void) -> BalloonPanel?
+    private let after: @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> Void
+    private var panel: BalloonPanel?
+    private var anchor: CGRect?
+    /// Counts the balloons shown and taken away, so an old balloon's time running out or its fade ending does nothing.
+    private var shows = 0
+
+    /// The app's: floating panels, each going after 4 seconds.
+    convenience init() {
+        self.init(
+            present: { (notice: Notice, anchor: CGRect?, clicked: @escaping @MainActor () -> Void) in
+                Balloon.panel(notice, anchor: anchor, clicked: clicked)
+            },
+            after: { (seconds: TimeInterval, body: @escaping @MainActor @Sendable () -> Void) in
+                let timer = Timer(timeInterval: seconds, repeats: false) { _ in
+                    MainActor.assumeIsolated {
+                        body()
+                    }
+                }
+
+                RunLoop.main.add(timer, forMode: .common)
+            })
     }
 
-    /// Fades it out.
+    /// - Parameters:
+    ///   - present: Puts a balloon on the screen under the menu bar icon's frame, calling `clicked` when it's clicked;
+    ///     nil when there's no screen.
+    ///   - after: Runs something after a while (the time a balloon stays).
+    init(
+        present: @escaping @MainActor (Notice, CGRect?, _ clicked: @escaping @MainActor () -> Void) -> BalloonPanel?,
+        after: @escaping @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> Void
+    ) {
+        self.present = present
+        self.after = after
+    }
+
+    /// Says `message` under `anchor`, the menu bar icon's frame on screen (nil when it has none): at once, or when the
+    /// balloons before it have gone.
+    func show(_ message: String, warning: Bool, anchor: CGRect?) {
+        self.anchor = anchor
+        let notice = Notice(message: message, warning: warning)
+        guard notice != showing, !waiting.contains(notice) else { return }
+        guard showing == nil else {
+            waiting.append(notice)
+            if waiting.count > Self.waitingAtMost {
+                waiting.removeFirst(waiting.count - Self.waitingAtMost)
+            }
+
+            return
+        }
+
+        put(notice)
+    }
+
+    /// Fades the balloon out (its time is up, or it was clicked); the next one shows once it has gone.
     func dismiss() {
-        timer?.invalidate()
-        timer = nil
         guard let panel else { return }
         self.panel = nil
-        panel.fadeOut(milliseconds: 160) {
+        shows += 1
+        let show = shows
+        panel.fadeOut(milliseconds: 160) { [weak self] in
             panel.orderOut(nil)
+            guard let self, self.shows == show else { return }
+            self.showNext()
         }
     }
 
-    /// Takes it away at once.
+    /// Takes the balloon away at once, and the ones waiting: the app is quitting.
     func close() {
-        timer?.invalidate()
-        timer = nil
+        shows += 1
+        showing = nil
+        waiting = []
         panel?.orderOut(nil)
         panel = nil
+    }
+
+    /// Shows `notice` for its time.
+    private func put(_ notice: Notice) {
+        shows += 1
+        let show = shows
+        showing = notice
+        panel = present(notice, anchor) { [weak self] in
+            self?.dismiss(show)
+        }
+
+        guard panel != nil else {
+            showNext()
+            return
+        }
+
+        after(Self.shownFor) { [weak self] in
+            self?.dismiss(show)
+        }
+    }
+
+    /// Fades out the balloon `show`, if it's still the one showing.
+    private func dismiss(_ show: Int) {
+        guard show == shows else { return }
+        dismiss()
+    }
+
+    /// The balloon has gone: the next one waiting shows.
+    private func showNext() {
+        showing = nil
+        guard !waiting.isEmpty else { return }
+        put(waiting.removeFirst())
+    }
+
+    /// The app's balloon for `notice`, under the menu bar icon's frame `anchor`; nil without a screen.
+    private static func panel(
+        _ notice: Notice, anchor: CGRect?, clicked: @escaping @MainActor () -> Void
+    ) -> BalloonPanel? {
+        let view = BalloonView(message: notice.message, warning: notice.warning, dismiss: clicked)
+        let iconScreen: NSScreen? = anchor.flatMap { icon in NSScreen.screens.first { $0.frame.intersects(icon) } }
+        let screen: NSScreen? = iconScreen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let area = screen?.visibleFrame else { return nil }
+        let panel = FloatingPanel.make(FirstClickHostingView(rootView: view))
+        panel.setFrame(frame(size: FloatingPanel.size(of: view), anchor: anchor, area: area), display: true)
+        panel.orderFrontRegardless()
+        panel.fadeIn(milliseconds: 180)
+        return panel
     }
 
     /// Under the menu bar icon (`anchor`), centred on it, 8 points below it and inside the screen's visible `area`;
@@ -66,6 +162,15 @@ final class Balloon {
         return CGRect(x: x.rounded(), y: y.rounded(), width: size.width, height: size.height)
     }
 }
+
+/// A balloon on the screen, which fades out and goes: the app's floating panel, a recorder in tests.
+@MainActor
+protocol BalloonPanel: AnyObject {
+    func fadeOut(milliseconds: Int, then done: @escaping @MainActor () -> Void)
+    func orderOut(_ sender: Any?)
+}
+
+extension FloatingPanel: BalloonPanel {}
 
 /// The balloon's look: a white card with the sign, "Voice Assistant" and the message.
 struct BalloonView: View {

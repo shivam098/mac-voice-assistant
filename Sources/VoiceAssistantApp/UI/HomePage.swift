@@ -253,8 +253,8 @@ public final class HomeModel: ObservableObject {
     nonisolated static func permissionRows(
         _ checks: Permissions, key: String, dictationKeyOn: Bool, asked: Set<Permissions.Kind> = []
     ) -> [PermissionRow] {
-        let allow = "Allow…"
-        let settings = "Open System Settings"
+        let allow = PermissionRow.allow
+        let settings = PermissionRow.openSettings
         var rows: [PermissionRow] = []
         let microphone = checks.status(.microphone)
         if microphone != .granted {
@@ -308,6 +308,16 @@ public struct PermissionRow: Equatable, Identifiable, Sendable {
     public let reason: String
     /// "Allow…", or "Open System Settings" once macOS has asked.
     public let button: String
+
+    /// The buttons' texts.
+    public static let allow = "Allow…"
+    public static let openSettings = "Open System Settings"
+
+    /// The button as VoiceOver says it, with the permission it's for: "Allow Microphone", "Open System Settings for
+    /// Accessibility".
+    public var buttonLabel: String {
+        button == Self.allow ? "Allow \(name)" : "\(button) for \(name)"
+    }
 }
 
 /// The page: `HomeContent` in a scroll.
@@ -366,7 +376,7 @@ struct HomeContent: View {
         let choice = Binding<Int>(get: { model.languageIndex }, set: { (index: Int) in model.chooseLanguage(index) })
         return VStack(alignment: .leading, spacing: 0) {
             Self.title("Dictation language")
-            Picker("", selection: choice) {
+            Picker("Dictation language", selection: choice) {
                 ForEach(HomeModel.languages.indices, id: \.self) { (index: Int) in
                     Text(verbatim: HomeModel.languages[index]).tag(index)
                 }
@@ -460,7 +470,9 @@ struct PermissionsCard: View {
                     }
 
                     Spacer(minLength: 12)
-                    Button(row.button) { allow(row.kind) }.buttonStyle(ThemeButtonStyle.standard)
+                    Button(row.button) { allow(row.kind) }
+                        .buttonStyle(ThemeButtonStyle.standard)
+                        .accessibilityLabel(Text(verbatim: row.buttonLabel))
                 }
                 .padding(.bottom, 10)
             }

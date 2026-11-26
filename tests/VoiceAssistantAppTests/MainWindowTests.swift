@@ -2,12 +2,14 @@ import AppKit
 import SwiftUI
 import ThumbFreeCore
 import ThumbFreeMac
+import VoiceAssistantBoard
 import VoiceAssistantCore
 import XCTest
 @testable import VoiceAssistantApp
 
 /// The window (windows-voice-assistant MainWindow.cs): closing hides it and says once that the app still runs, the
-/// sidebar's pages and the board, what the assistant tells it, and the Mac's keys while it's in front.
+/// sidebar's pages and the board, what the assistant tells it, the pages read again as it shows, and the Mac's keys
+/// while it's in front.
 final class MainWindowTests: XCTestCase {
     @MainActor
     func testClosingHidesTheWindowAndSaysOnceThatTheAppIsStillRunning() {
@@ -49,6 +51,29 @@ final class MainWindowTests: XCTestCase {
         model.show(.ideas)
         XCTAssertEqual(model.page, .ideas)
         XCTAssertNil(model.boardList, "the sidebar opens the whole board")
+    }
+
+    @MainActor
+    func testThePagesAreReadAgainWhenTheWindowShows() throws {
+        let rig = PageRig()
+        defer { rig.folder.remove() }
+        let board = try rig.board()
+        try board.add(.reminders, "Call mom", due: rig.now.value.addingTimeInterval(10 * 60))
+        rig.system.microphone = .notDetermined
+        let model = WindowModel(
+            home: rig.home(board: board), settings: rig.settings(), help: HelpModel(keys: KeyNames()))
+        XCTAssertEqual(model.home.permissions.map(\.kind), [.microphone])
+        XCTAssertEqual(model.home.upcoming.map(\.colour), [Theme.text])
+        XCTAssertFalse(model.settings.startsAtLogin)
+
+        // Away for 20 minutes, while the microphone and the login item were switched on in System Settings.
+        rig.now.update { $0 = $0.addingTimeInterval(20 * 60) }
+        rig.system.microphone = .authorized
+        rig.login.enabled = true
+        model.refresh()
+        XCTAssertEqual(model.home.permissions, [])
+        XCTAssertEqual(model.home.upcoming.map(\.colour), [Theme.danger], "due now")
+        XCTAssertTrue(model.settings.startsAtLogin)
     }
 
     @MainActor

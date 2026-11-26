@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import ThumbFreeMac
 import VoiceAssistantCore
 import VoiceAssistantMac
@@ -37,6 +39,20 @@ final class SettingsPageTests: XCTestCase {
         XCTAssertEqual(field("hotkey").text, "Ctrl+Shift+Space", "as settings.json writes it")
         XCTAssertEqual(field("replacements").text, "git hub = GitHub\nsign off = Thanks,\\nShivam \\\\o/")
         XCTAssertFalse(model.fields.contains { $0.isChanged })
+
+        XCTAssertEqual(
+            field("dictationLanguageHotkey").hint,
+            "Written as in settings.json: Ctrl+Shift+Space is ⌃⇧Space; Alt is ⌥ Option and Win is ⌘ Command. Windows' "
+                + "defaults, as in a settings.json copied from Windows (Ctrl+Alt+Space, Alt+Shift+Z, Alt+Shift+H), "
+                + "mean the Mac's: ⌃⇧Space, ⌃⇧Z and ⌃⇧H.")
+        var fromWindows = AppSettings()
+        fromWindows.hotkey = "Ctrl+Alt+Space"
+        fromWindows.pasteLastHotkey = "Alt+Shift+Z"
+        fromWindows.dictationLanguageHotkey = "Alt+Shift+H"
+        let registered = [
+            fromWindows.macHotkey, fromWindows.macPasteLastHotkey, fromWindows.macDictationLanguageHotkey,
+        ]
+        XCTAssertEqual(registered.map { AppSettings.hotkeyLabel($0) }, ["⌃⇧Space", "⌃⇧Z", "⌃⇧H"], "as the hint says")
     }
 
     @MainActor
@@ -223,14 +239,18 @@ final class SettingsPageTests: XCTestCase {
             (.failed("The download stopped: the network connection was lost."),
              "The download stopped: the network connection was lost.", true),
             (.failed(""), "It couldn't start. Open logs folder for details; it tries again when you next ask.", false),
-            (.unavailable("The AI brain needs a Mac with Apple silicon."),
-             "The AI brain needs a Mac with Apple silicon.", false),
         ]
         for (status, text, isError) in states {
             rig.brain.status = status
             model.brainChanged()
             XCTAssertEqual(model.brainCard, BrainCard(text: text, isError: isError, showsFolder: true), text)
         }
+
+        rig.brain.status = .unavailable("The AI brain needs a Mac with Apple silicon.")
+        model.brainChanged()
+        XCTAssertEqual(
+            model.brainCard, BrainCard(text: "The AI brain needs a Mac with Apple silicon."),
+            "nothing is downloaded on this Mac: no folder to open")
 
         rig.brain.status = .notInstalled
         rig.brain.missingBytes = 0
@@ -243,6 +263,46 @@ final class SettingsPageTests: XCTestCase {
     }
 
     @MainActor
+    func testTheTextAreasKeepWhatIsTypedAsItIsTyped() throws {
+        let rig = PageRig()
+        defer { rig.folder.remove() }
+        let model = rig.settings()
+        let index = model.index("snippets")
+        let hosted = Hosted(SettingsContent(model: model), size: CGSize(width: 808, height: 3_000))
+        defer { hosted.close() }
+        let boxes = hosted.views(NSTextView.self).filter { !$0.isFieldEditor }
+        XCTAssertEqual(
+            Set(boxes.map { $0.accessibilityLabel() ?? "" }),
+            [
+                "Words I use often (one per line)", "Personal dictionary (heard = typed, one per line)",
+                model.fields[index].label,
+            ],
+            "each named for VoiceOver")
+        let box = try XCTUnwrap(boxes.first { $0.accessibilityLabel() == model.fields[index].label })
+        for box in boxes {
+            XCTAssertFalse(box.isAutomaticQuoteSubstitutionEnabled, "System Settings › Keyboard may have them on")
+            XCTAssertFalse(box.isAutomaticDashSubstitutionEnabled)
+            XCTAssertFalse(box.isAutomaticTextReplacementEnabled)
+            XCTAssertFalse(box.isAutomaticSpellingCorrectionEnabled)
+            XCTAssertFalse(box.isRichText)
+        }
+
+        let typed = "sign off = \"Thanks\" -- Shivam's"
+        for character in typed {
+            box.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+
+        XCTAssertEqual(model.fields[index].text, typed)
+        XCTAssertTrue(model.save())
+        XCTAssertEqual(
+            AppSettings.loadOrCreate(from: rig.paths.settingsFile).snippets["sign off"], "\"Thanks\" -- Shivam's")
+
+        model.fields[index].text = "a = b"
+        PageRig.waitForMain { box.string == "a = b" }
+        XCTAssertEqual(box.string, "a = b", "the box shows the field")
+    }
+
+    @MainActor
     func testTheButtonsOpenTheFilesAndFoldersAndAskTheApp() {
         let rig = PageRig()
         defer { rig.folder.remove() }
@@ -251,6 +311,10 @@ final class SettingsPageTests: XCTestCase {
         let model = rig.settings(launch)
         model.openSettingsFile()
         XCTAssertEqual(rig.opener.opened, ["TextEdit " + rig.paths.settingsFile])
+        XCTAssertEqual(
+            model.message,
+            "settings.json is open in TextEdit. Before typing quotes there, turn off Edit › Substitutions › Smart "
+                + "Quotes: the file needs straight ones.")
         XCTAssertEqual(
             AppSettings.loadOrCreate(from: rig.paths.settingsFile).awakeSeconds, 40,
             "written first, from the settings read at launch")

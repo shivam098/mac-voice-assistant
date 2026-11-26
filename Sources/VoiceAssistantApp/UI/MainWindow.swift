@@ -33,6 +33,14 @@ public final class WindowModel: ObservableObject {
         boardList = list
         page = .ideas
     }
+
+    /// Reads again what may have changed while the window was away, as it shows or comes forward: what macOS allows,
+    /// which reminders are due, "Start when I log in" and the AI brain.
+    public func refresh() {
+        home.refreshPermissions()
+        home.refreshReminders()
+        settings.refresh()
+    }
 }
 
 /// The app's window (windows-voice-assistant `MainWindow`): Home, the idea board, Settings and "What you can say",
@@ -115,9 +123,11 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
     /// Shows the window and brings it forward, out of the Dock if it was minimized (Windows' `Bring`); its contents
     /// fade in when it wasn't showing. A voice command or a second launch isn't a click in the app, so macOS may keep
-    /// another app active: the window still comes to the front.
+    /// another app active (and the window may not become key): the window still comes to the front, with its pages
+    /// read again.
     public func bring() {
         let wasVisible = window.isVisible
+        model.refresh()
         if NSApp.isHidden {
             NSApp.unhide(nil)
         }
@@ -180,9 +190,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
     /// Back in front, perhaps from System Settings: what macOS allows, the login item and the times may have changed.
     public func windowDidBecomeKey(_ notification: Notification) {
-        model.home.refreshPermissions()
-        model.home.refreshReminders()
-        model.settings.refresh()
+        model.refresh()
     }
 
     /// Hides the window and gives the keyboard back to the app before (the floating panels stay: they can't hide);
@@ -312,6 +320,8 @@ struct Sidebar: View {
             }
             .padding(EdgeInsets(top: 0, leading: 8, bottom: 20, trailing: 0))
             ForEach(Self.items, id: \.page) { (item: Item) in
+                let selected: Bool = model.page == item.page
+                let traits: AccessibilityTraits = selected ? .isSelected : []
                 Button {
                     model.show(item.page)
                 } label: {
@@ -320,7 +330,8 @@ struct Sidebar: View {
                         Text(verbatim: item.label)
                     }
                 }
-                .buttonStyle(Self.style(selected: model.page == item.page))
+                .buttonStyle(Self.style(selected: selected))
+                .accessibilityAddTraits(traits)
                 .padding(.bottom, 4)
             }
 
