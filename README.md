@@ -58,7 +58,8 @@ Releases are built by CI. The Release workflow, run by hand on `main`, builds th
 and publishes `VoiceAssistant-<version>.dmg` and `SHA256SUMS`, with `docs/release-notes/v<version>.md` as the notes, as
 the pre-release `v<version>`. By default it's a dry run, which keeps the files as the run's artifact instead.
 `scripts/check-release.sh` refuses a version that isn't the app's (`VoiceAssistantCore.version`), and a real release
-unless `Package.swift` pins thumbfree-mac to a commit; a tag or a release that exists is never replaced.
+unless it was started on `main` and `Package.swift` pins thumbfree-mac to a commit; a tag or a release that exists is
+never replaced.
 
 `scripts/make-app.sh` builds `Voice Assistant.app` (Apple silicon and Intel, signed ad hoc) and
 `VoiceAssistant-<version>.dmg` in `dist/`. The App workflow runs it for every pull request and every change to `main`

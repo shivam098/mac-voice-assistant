@@ -7,14 +7,17 @@
 # - The version is three numbers such as 0.1.0, and it's the app's own: VoiceAssistantApp.version in the source, which
 #   is VoiceAssistantCore.version.
 # - Its release notes are in docs/release-notes/v<version>.md.
+# - The run was started on main (GITHUB_REF, which GitHub sets, is refs/heads/main): releases come from main only.
 # - Package.swift pins thumbfree-mac to a commit (revision: "<its 40-character SHA>"), so the release can be built
 #   again. Until then it follows thumbfree-mac's main.
 # - Neither the tag v<version> nor a release with that tag exists, so nothing is replaced.
 #
-# The first two stop any run. The last two stop a real run; a dry run only warns about them, and says that a real run
-# would refuse. Needs git with an origin remote, and gh signed in (GH_TOKEN, and GH_REPO for the repository).
+# The first two stop any run. The last three stop a real run; a dry run only warns about them, and says that a real run
+# would refuse. Needs git with an origin remote, and gh signed in (GH_TOKEN, and GH_REPO for the repository). It runs
+# with bash 3.2 (a Mac's /bin/bash) and later, and with the Mac's sed, grep and tr as well as GNU's.
 set -euo pipefail
-shopt -s inherit_errexit
+# Bash 4.4 and later only; nothing here relies on it, since every command whose output it reads is checked.
+shopt -s inherit_errexit 2>/dev/null || true
 
 cd "$(dirname "$0")/.."
 
@@ -81,6 +84,15 @@ if [[ ! -s "$notes" ]]; then
   fail "There are no release notes for $version: $notes is missing or empty."
 fi
 echo "Release notes: $notes."
+
+ref="${GITHUB_REF:-}"
+if [[ "$ref" == refs/heads/main ]]; then
+  echo "Started on main."
+elif [[ -z "$ref" ]]; then
+  refuse "Releases come from main only, by the Release workflow, and GITHUB_REF isn't set."
+else
+  refuse "Releases come from main only, but this run was started on $ref."
+fi
 
 # thumbfree-mac's dependency in Package.swift, read without comments and as one line.
 dependencies="$(sed -E 's#(^|[[:space:]])//.*$##' Package.swift | tr -s '[:space:]' ' ' |

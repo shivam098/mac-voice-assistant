@@ -7,9 +7,10 @@ name: Release
 # release.
 #
 # scripts/check-release.sh says whether it may go ahead: the version must be the app's (VoiceAssistantCore.version) and
-# have its notes, and a real run also needs Package.swift to pin thumbfree-mac to a commit, so the release can be built
-# again; a tag or a release that exists is never replaced. Releases are pre-releases, signed ad hoc, until the app is
-# signed with a Developer ID and notarized (docs/design.md, phase 6).
+# have its notes, and a real run must also be started on main, with Package.swift pinning thumbfree-mac to a commit so
+# the release can be built again; a tag or a release that exists is never replaced. Releases are pre-releases, signed
+# ad hoc, until the app is signed with a Developer ID and notarized (docs/design.md, phase 6). The App workflow builds
+# them with Xcode 16.4.
 on:
   workflow_dispatch:
     inputs:
