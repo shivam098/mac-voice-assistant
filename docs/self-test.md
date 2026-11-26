@@ -137,7 +137,7 @@ lab.html, mail.html and chats.html, open in that order in a new window):
 | N4 | "go to library" | "clicked Library left" (no app or tab is called that) |
 | N5 | "click delete account", then "yes" | It waits for "yes" (nothing clicked yet), then "clicked Delete account right" |
 | N6 | "start typing in the message box", "hello from voice" | The focus in Message, its text "Hello from voice" |
-| N7 | "go to the tab where YouTube is open", "start typing", "lofi music" | The videos tab, the focus in its Search box (the YouTube site profile's), "Lofi music" |
+| N7 | "go to the tab where YouTube is open", "start typing", "lofi music" | The videos tab, the focus in its Search box (the YouTube site profile's), empty, so not the address bar, then "Lofi music" |
 | N8 | "go to the third tab", "start typing", "two", "quarterly plan" | Two numbers, on To and Subject (not the address bar), then the focus in Subject, "Quarterly plan" |
 | N9 | "show numbers", "hide numbers", on the lab page | Numbers on a button, the link, the Message box and a tab; then none |
 | N10 | "select vivash morang", "click family", in the chat list | "opened Bibhash Morang" (a name heard slightly differently), "opened Family": rows that open only on a real click |
@@ -150,16 +150,18 @@ tests/NavigationLab/run.sh .build/release/VoiceAssistant safari [<results folder
 
 - **chrome:** Google Chrome with a temporary profile, a process of its own whatever else Chrome has open (as Windows'
   NavigationLab starts it), the pages as files. It quits afterwards and the profile is deleted.
-- **safari:** Safari mustn't be running; it quits afterwards. The pages come from a web server the lab starts on this
-  Mac, python3's on 127.0.0.1 only, and stops afterwards: Safari asks before it shows a file that AppleScript opens.
-  The lab opens the tabs with AppleScript and the app lists them with AppleScript, so whatever starts the lab needs
-  the Automation permission for Safari: Terminal asks for it the first time.
+- **safari:** Safari mustn't be running. Afterwards the lab closes its window and quits it through AppleScript, so it
+  doesn't open the lab's tabs again next time (a Safari that doesn't quit within 5 s is stopped). The pages come from
+  a web server the lab starts on this Mac, python3's on 127.0.0.1 only, and stops afterwards: Safari asks before it
+  shows a file that AppleScript opens. The lab opens the tabs with AppleScript and the app lists them with AppleScript,
+  so whatever starts the lab needs the Automation permission for Safari: Terminal asks for it the first time.
 
 Each run's expected lines (`nav-lab.chrome.expected.txt`, `nav-lab.safari.expected.txt`) pin the browser in front,
-the numbers offered (N3, N8, N9) and the click that waits for "yes" (N5), and the three typed texts by their length and
-hash. The results folder (by default `$TMPDIR/voice-assistant-self-test/nav-lab-<browser>`) gets `output.txt`, the
-script under the browser's name (`nav-lab-chrome.selftest.txt`, so the run's last line and the job's summary say which
-browser it was), the app's log files written during the run and, for Safari, the web server's log (`server.log`).
+the numbers offered (N3, N8, N9) and the click that waits for "yes" (N5), the Search box empty before typing (N7: the
+address bar holds the page's address), and the three typed texts by their length and hash. The results folder (by
+default `$TMPDIR/voice-assistant-self-test/nav-lab-<browser>`) gets `output.txt`, the script under the browser's name
+(`nav-lab-chrome.selftest.txt`, so the run's last line and the job's summary say which browser it was), the app's log
+files written during the run and, for Safari, the web server's log (`server.log`).
 
 A new lab:
 

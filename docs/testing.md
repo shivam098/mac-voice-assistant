@@ -205,7 +205,7 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   with N10 and N16, in Chrome and in Safari. They need this repo and Xcode (HANDOFF-mac.md sections 2 and 3): after
   `swift build -c release`, run `tests/NavigationLab/run.sh .build/release/VoiceAssistant chrome`, then the same with
   `safari` with Safari closed ([self-test.md](self-test.md)), and don't use the Mac while each runs (about a minute).
-  Each ends with a line such as "nav-lab-chrome: 32 passed, 0 failed". They pass on GitHub's runner; this Mac's screen,
+  Each ends with a line such as "nav-lab-chrome: 33 passed, 0 failed". They pass on GitHub's runner; this Mac's screen,
   fonts and browser versions are what's new.
 
 ### The AI brain

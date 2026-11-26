@@ -50,12 +50,15 @@ read
 expect: Hello from voice
 say: stop typing
 
-# N7: a tab by its site, then the site's box (the YouTube site profile's Search)
+# N7: a tab by its site, then the site's box (the YouTube site profile's Search), not the address bar: the page's box is
+# empty, the address bar holds the page's address
 say: go to the tab where YouTube is open
 wait 600
 expecttitle: YouTube
 say: start typing
 expectfocus: Search
+read
+expectvalue:
 say: lofi music
 wait 300
 read

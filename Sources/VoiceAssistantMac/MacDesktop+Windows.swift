@@ -10,33 +10,57 @@ extension MacDesktop {
     /// The most windows listed (C#'s `MaxListedWindows`).
     static let maxListedWindows = 12
 
+    /// How long the window list asks apps for their windows, then describes them, inside the 4-second limit. Both are
+    /// checked before each window, and an app that doesn't answer is asked nothing more, so about one question, which
+    /// waits `SystemAX.timeout` (1 s) at most, goes past either: the list comes back in time with what was found.
+    static let windowSearchTime: TimeInterval = 1.5
+    static let windowListTime: TimeInterval = 3
+
     /// The windows of the other apps, front-most first and the one taking the keys first of all, at most 12 (C#'s
     /// `ListWindows`), each with how it's shown, its frame and the usable part of its screen (`describe`). Windows
     /// lists the visible top-level windows that no other window owns; here they're the standard windows
-    /// (`windows(of:)`) of the apps in the Dock, and of the app taking the keys when it isn't one: panels, alerts,
-    /// sheets and Finder's desktop aren't, as Windows skips tool and owned windows and the desktop. Minimized windows
-    /// count, as on Windows, and so do a hidden app's, shown as minimized. A window without a title counts too, though
-    /// Windows skips those: a Mac app's only window can have none, and the brain also knows a window by its app's name.
-    /// Off the caller's thread with the scans' 4-second limit; an app slow to answer ends the list with what was found
-    /// by then.
+    /// (`windows(of:)`) of the apps in the Dock, and of the app in front when it isn't one: panels, alerts, sheets and
+    /// Finder's desktop aren't, as Windows skips tool and owned windows and the desktop. Minimized windows count, as on
+    /// Windows, and so do a hidden app's, shown as minimized. A window without a title counts too, though Windows skips
+    /// those: a Mac app's only window can have none, and the brain also knows a window by its app's name.
+    ///
+    /// Off the caller's thread with the scans' 4-second limit (Windows' list doesn't wait on apps, so it has none). It
+    /// asks for windows for 1.5 s and describes them, front-most first, until 3 s (`windowSearchTime`,
+    /// `windowListTime`); an app that doesn't answer isn't asked again, and a window that isn't reached by then isn't
+    /// listed. The window taking the keys is asked for last. Should the limit pass all the same (an app in front that
+    /// doesn't answer), the windows described by then are the list.
     public func listWindows() async throws -> [DesktopWindow] {
         let screens = await workspace.screens()
-        return try await scanned("window list") { [self] token in scanWindows(screens, token) }
+        let listed = Background.Answer<[DesktopWindow]>()
+        switch try await Background.run(Self.accessibilityTimeout, { [self] token in
+            scanWindows(screens, token, listed)
+        }) {
+        case .finished(let windows):
+            return windows
+        case .timedOut:
+            let partial = listed.value ?? []
+            log("window list timed out with \(partial.count) windows")
+            return partial
+        }
     }
 
-    /// C#'s `ListWindows`, in `token`'s time.
-    func scanWindows(_ screens: [ScreenArea], _ token: WorkToken) -> [DesktopWindow] {
+    /// C#'s `ListWindows`, in `token`'s time: the list as it grows goes to `listed`, in case the time runs out.
+    func scanWindows(
+        _ screens: [ScreenArea], _ token: WorkToken, _ listed: Background.Answer<[DesktopWindow]>
+    ) -> [DesktopWindow] {
         let start = clock.now()
-        let front = foregroundWindow()
+        let searchEnd = start + Self.windowSearchTime
+        let listEnd = start + Self.windowListTime
+        let front = workspace.frontmostApp()?.processIdentifier
         var found: [AppWindow] = []
         var hidden: Set<Int> = []
         for process in workspace.runningApps() where process.processIdentifier != ownProcess {
-            guard process.isRegular || front?.processId == Int(process.processIdentifier) else { continue }
-            if token.isCancelled || clock.now() > start + Self.scanTime {
+            guard process.isRegular || process.processIdentifier == front else { continue }
+            if token.isCancelled || clock.now() > searchEnd {
                 break
             }
 
-            let processWindows = windows(of: process)
+            let processWindows = windows(of: process) { token.isCancelled || self.clock.now() > searchEnd }
             if !processWindows.isEmpty, isHidden(process.processIdentifier) {
                 hidden.insert(Int(process.processIdentifier))
             }
@@ -44,32 +68,56 @@ extension MacDesktop {
             found += processWindows
         }
 
-        var listed = Array(frontToBack(found).prefix(Self.maxListedWindows))
-        if let front, let index = listed.firstIndex(where: { $0.info.sameWindow(front) }), index > 0 {
-            listed.insert(listed.remove(at: index), at: 0)
+        var described: [DesktopWindow] = []
+        var unanswered: Set<Int> = []
+        for window in frontToBack(found).prefix(Self.maxListedWindows) {
+            if token.isCancelled || clock.now() > listEnd {
+                break
+            }
+
+            let pid = window.info.processId
+            described.append(describe(window, hidden: hidden.contains(pid), &unanswered, screens))
+            listed.set(described)
         }
 
-        let described = listed.map { window in
-            describe(window, hidden: hidden.contains(window.info.processId), screens)
+        if let keys = foregroundWindow(), let index = described.firstIndex(where: { $0.window.sameWindow(keys) }),
+           index > 0 {
+            described.insert(described.remove(at: index), at: 0)
         }
+
         log("window list: \(described.count) windows, \(milliseconds(since: start)) ms")
         return described
     }
 
     /// C#'s `Describe`: minimized (also when its app is hidden: nothing of it shows), maximized in full screen, else
     /// normal (the core calls a window that fills its screen's usable part maximized, as zooming makes it); its frame,
-    /// and the usable part of the screen it's on (`screen(of:)`).
-    func describe(_ window: AppWindow, hidden: Bool, _ screens: [ScreenArea]) -> DesktopWindow {
-        var show = WindowShow.normal
-        if hidden || (try? ax.number(kAXMinimizedAttribute, of: window.element)) == 1 {
-            show = .minimized
-        } else if (try? ax.number(AXName.fullScreen, of: window.element)) == 1 {
-            show = .maximized
+    /// and the usable part of the screen it's on (`screen(of:)`). An app that doesn't answer goes in `unanswered`, and
+    /// its windows are described by what's known without asking it: no frame, and minimized only when it's hidden.
+    func describe(
+        _ window: AppWindow, hidden: Bool, _ unanswered: inout Set<Int>, _ screens: [ScreenArea]
+    ) -> DesktopWindow {
+        let pid = window.info.processId
+        var show: WindowShow = hidden ? .minimized : .normal
+        if unanswered.contains(pid) {
+            return DesktopWindow(window: window.info, show: show)
         }
 
-        let frame: CGRect? = try? ax.frame(of: window.element)
-        let workArea: ScreenRect? = frame.flatMap { Self.screen(of: $0, screens) }.map { ScreenRect($0.visibleFrame) }
-        return DesktopWindow(window: window.info, show: show, rect: frame.map { ScreenRect($0) }, workArea: workArea)
+        do {
+            if !hidden, try ax.number(kAXMinimizedAttribute, of: window.element) == 1 {
+                show = .minimized
+            } else if !hidden, try ax.number(AXName.fullScreen, of: window.element) == 1 {
+                show = .maximized
+            }
+
+            let frame: CGRect? = try ax.frame(of: window.element)
+            let area: ScreenArea? = frame.flatMap { Self.screen(of: $0, screens) }
+            let workArea: ScreenRect? = area.map { ScreenRect($0.visibleFrame) }
+            let rect: ScreenRect? = frame.map { ScreenRect($0) }
+            return DesktopWindow(window: window.info, show: show, rect: rect, workArea: workArea)
+        } catch {
+            unanswered.insert(pid)
+            return DesktopWindow(window: window.info, show: show)
+        }
     }
 
     /// The screen a window is on (C#'s `MonitorFromWindow`, the nearest): the one with the window's centre, else the

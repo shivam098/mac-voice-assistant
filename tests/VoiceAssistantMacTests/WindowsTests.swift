@@ -11,7 +11,7 @@ final class WindowsTests: XCTestCase {
     // MARK: Listing
 
     /// The other apps' standard windows, front-most first by the window server's order and the one taking the keys
-    /// first of all; not this app's, not panels, and not an app outside the Dock unless it's taking the keys.
+    /// first of all; not this app's, not panels, and not an app outside the Dock unless it's in front.
     func testListsTheOtherAppsWindowsFrontMostFirst() async throws {
         let rig = Rig()
         let notes = FakeElement.window(title: "Notes.txt", number: 420)
@@ -26,8 +26,9 @@ final class WindowsTests: XCTestCase {
         let agent = FakeElement.app(pid: 5)
         agent[kAXWindowsAttribute] = [agentWindow]
         rig.ax.apps[5] = agent
-        rig.workspace.running.append(
-            RunningApp(processIdentifier: 5, bundleIdentifier: "com.example.agent", name: "Agent", isRegular: false))
+        let agentApp = RunningApp(
+            processIdentifier: 5, bundleIdentifier: "com.example.agent", name: "Agent", isRegular: false)
+        rig.workspace.running.append(agentApp)
         rig.front(8, "com.apple.finder", "Finder", window: .window(pid: 8, title: "Documents", number: 80))
         rig.workspace.windowOrder = [10, 50, 422, 421, 80, 420]
 
@@ -39,7 +40,8 @@ final class WindowsTests: XCTestCase {
         XCTAssertEqual(finder, listed.first?.window)
         XCTAssertEqual("window list: 3 windows, 0 ms", rig.log.lines.last)
 
-        // An app outside the Dock taking the keys (a menu bar app's settings window).
+        // An app outside the Dock in front, taking the keys (a menu bar app's settings window).
+        rig.workspace.front = agentApp
         rig.ax.focus(agent, window: agentWindow)
         listed = try await desktop.listWindows()
         XCTAssertEqual([50, 421, 80, 420], listed.map(\.window.handle))
@@ -71,6 +73,7 @@ final class WindowsTests: XCTestCase {
         alert[kAXSubroleAttribute] = kAXDialogSubrole
         let music = FakeElement.window(pid: 7, title: "Music", number: 70)
         music[kAXSubroleAttribute] = kAXDialogSubrole
+        music[kAXMinimizeButtonAttribute] = minimizeButton()
         rig.front(7, "com.apple.Music", "Music", window: music)
         rig.ax.apps[7]?[kAXHiddenAttribute] = true
         rig.front(42, "com.apple.TextEdit", "TextEdit", window: notes)
@@ -111,6 +114,128 @@ final class WindowsTests: XCTestCase {
         listed = try await rig.desktop.listWindows()
         XCTAssertEqual(Array(1...12), listed.map(\.window.handle))
         XCTAssertEqual("window list: 12 windows, 0 ms", rig.log.lines.last)
+    }
+
+    /// In a hidden app every window says it's a dialog, as an alert does: only one that can be minimized (a minimize
+    /// button that works) is a document window. A hidden app's alert and About panel aren't listed, nor taken for the
+    /// app's window by "open …".
+    func testAHiddenAppsAlertsArentListed() async throws {
+        let rig = Rig()
+        let document = FakeElement.window(pid: 7, title: "Library", number: 70)
+        document[kAXSubroleAttribute] = kAXDialogSubrole
+        document[kAXMinimizeButtonAttribute] = minimizeButton()
+        let alert = FakeElement.window(pid: 7, title: "", number: 71)
+        alert[kAXSubroleAttribute] = kAXDialogSubrole
+        let about = FakeElement.window(pid: 7, title: "", number: 72)
+        about[kAXSubroleAttribute] = kAXDialogSubrole
+        about[kAXMinimizeButtonAttribute] = minimizeButton(enabled: false)
+        rig.front(7, "com.apple.Music", "Music", window: document)
+        rig.ax.apps[7]?[kAXWindowsAttribute] = [alert, about, document]
+        rig.ax.apps[7]?[kAXHiddenAttribute] = true
+        rig.front(8, "com.apple.finder", "Finder", window: .window(pid: 8, title: "Documents", number: 80))
+
+        let listed = try await rig.desktop.listWindows()
+        XCTAssertEqual([80, 70], listed.map(\.window.handle))
+        let shows: [WindowShow] = [.normal, .minimized]
+        XCTAssertEqual(shows, listed.map(\.show))
+        let music = AppEntry(name: "Music", launch: "com.apple.Music", processNames: ["com.apple.Music"])
+        XCTAssertEqual([70], rig.desktop.appWindows(music).map(\.info.handle))
+    }
+
+    // MARK: The time limit
+
+    /// Apps are asked for their windows for 1.5 s: one slow to answer ends the search there, and the windows found by
+    /// then are listed.
+    func testAnAppSlowToAnswerEndsTheSearch() async throws {
+        let rig = Rig()
+        rig.front(42, "com.apple.TextEdit", "TextEdit", window: .window(title: "Notes.txt", number: 420))
+        let slow = FakeElement.app(pid: 43)
+        slow.answers = false
+        rig.ax.apps[43] = slow
+        rig.workspace.run(43, "com.example.Slow", "Slow")
+        let notes = FakeElement.app(pid: 44)
+        notes[kAXWindowsAttribute] = [FakeElement.window(pid: 44, title: "Shopping", number: 440)]
+        rig.ax.apps[44] = notes
+        rig.workspace.run(44, "com.apple.Notes", "Notes")
+        rig.workspace.windowOrder = [420, 440]
+        let time = rig.time
+        let asked = LogLines()
+        rig.ax.onRead = { element, attribute in
+            guard attribute == kAXWindowsAttribute else { return }
+            asked.add("\(element.pid)")
+            if element.pid == 43 {
+                time.advance(2)
+            }
+        }
+
+        let listed = try await rig.desktop.listWindows()
+        XCTAssertEqual([420], listed.map(\.window.handle))
+        XCTAssertEqual(["42", "43"], asked.lines)
+        XCTAssertEqual("window list: 1 windows, 2000 ms", rig.log.lines.last)
+    }
+
+    /// The windows are described front-most first. An app that stops answering is asked nothing more: its windows are
+    /// listed by what's known, without a frame. Describing stops at 3 s: a window not reached by then isn't listed.
+    func testDescribingStopsForAnAppThatDoesntAnswerAndAtTheTimeLimit() async throws {
+        let rig = Rig()
+        let windows: [FakeElement] = [1, 2, 3].map { (number: Int) -> FakeElement in
+            FakeElement.window(title: "Note \(number)", number: number)
+        }
+        rig.front(42, "com.apple.TextEdit", "TextEdit", window: windows[0])
+        rig.ax.apps[42]?[kAXWindowsAttribute] = windows
+        rig.workspace.windowOrder = [1, 2, 3]
+        let described = LogLines()
+        rig.ax.onRead = { element, attribute in
+            guard attribute == kAXMinimizedAttribute, let number = element.windowNumber else { return }
+            described.add("\(number)")
+            if number == 2 {
+                element.answers = false
+            }
+        }
+
+        var listed = try await rig.desktop.listWindows()
+        XCTAssertEqual([1, 2, 3], listed.map(\.window.handle))
+        let rects: [ScreenRect?] = [ScreenRect(x: 0, y: 0, width: 1000, height: 800), nil, nil]
+        XCTAssertEqual(rects, listed.map(\.rect))
+        XCTAssertEqual(["1", "2"], described.lines)
+
+        windows[1].answers = true
+        let time = rig.time
+        rig.ax.onRead = { element, attribute in
+            if attribute == kAXMinimizedAttribute, element.windowNumber == 2 {
+                time.advance(3.5)
+            }
+        }
+
+        listed = try await rig.desktop.listWindows()
+        XCTAssertEqual([1, 2], listed.map(\.window.handle))
+    }
+
+    /// Should the 4-second limit pass all the same, the windows described by then are the list.
+    func testTheWindowsDescribedWhenTheTimeRunsOutAreTheList() async throws {
+        let rig = Rig()
+        let windows: [FakeElement] = [1, 2].map { (number: Int) -> FakeElement in
+            FakeElement.window(title: "Note \(number)", number: number)
+        }
+        rig.front(42, "com.apple.TextEdit", "TextEdit", window: windows[0])
+        rig.ax.apps[42]?[kAXWindowsAttribute] = windows
+        rig.workspace.windowOrder = [1, 2]
+        rig.ax.onRead = { element, attribute in
+            if attribute == kAXMinimizedAttribute, element.windowNumber == 2 {
+                Thread.sleep(forTimeInterval: MacDesktop.accessibilityTimeout + 0.5)
+            }
+        }
+
+        let listed = try await rig.desktop.listWindows()
+        XCTAssertEqual([1], listed.map(\.window.handle))
+        XCTAssertEqual("window list timed out with 1 windows", rig.log.lines.last)
+    }
+
+    /// A title bar's minimize button, enabled or not.
+    private func minimizeButton(enabled: Bool = true) -> FakeElement {
+        let button = FakeElement(role: kAXButtonRole, subrole: kAXMinimizeButtonSubrole)
+        button[kAXEnabledAttribute] = enabled
+        return button
     }
 
     // MARK: Bringing one forward

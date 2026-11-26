@@ -139,12 +139,16 @@ final class FakeAX: AXSystem {
         try lookup(element).pid
     }
 
+    /// Called with the element and the attribute each `string`, `number` and `elements` asks for, before the element
+    /// answers or not: an app that takes its time.
+    var onRead: ((FakeElement, String) -> Void)?
+
     func string(_ attribute: String, of element: AnyObject) throws -> String? {
-        try lookup(element)[attribute] as? String
+        try read(element, attribute)[attribute] as? String
     }
 
     func number(_ attribute: String, of element: AnyObject) throws -> Int? {
-        let value = try lookup(element)[attribute]
+        let value = try read(element, attribute)[attribute]
         if let flag = value as? Bool {
             return flag ? 1 : 0
         }
@@ -172,7 +176,7 @@ final class FakeAX: AXSystem {
     }
 
     func elements(_ attribute: String, of element: AnyObject) throws -> [AnyObject] {
-        let fake = try lookup(element)
+        let fake = try read(element, attribute)
         if attribute == kAXChildrenAttribute {
             return fake.children
         }
@@ -297,6 +301,14 @@ final class FakeAX: AXSystem {
         app[kAXFocusedWindowAttribute] = window
         focusedApp = app
         focused = element
+    }
+
+    private func read(_ element: AnyObject, _ attribute: String) throws -> FakeElement {
+        if let fake = element as? FakeElement {
+            onRead?(fake, attribute)
+        }
+
+        return try lookup(element)
     }
 
     private func lookup(_ element: AnyObject) throws -> FakeElement {

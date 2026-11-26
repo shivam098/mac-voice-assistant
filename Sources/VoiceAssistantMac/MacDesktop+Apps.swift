@@ -177,30 +177,52 @@ extension MacDesktop {
     }
 
     /// The app's standard windows (AXStandardWindow, or windows that don't say what they are), minimized ones too, and
-    /// a hidden app's. macOS calls a minimized window a dialog (AXDialog), and every window of a hidden app, as it calls
-    /// an alert: a window that says it's a dialog counts only when it's minimized or its app is hidden.
-    func windows(of process: RunningApp) -> [AppWindow] {
+    /// a hidden app's. macOS calls a minimized window a dialog (AXDialog), and every window of a hidden app, as it
+    /// calls an alert or a panel. Such a window counts when it's minimized, which an alert or a panel can't be; in a
+    /// hidden app, only when it has a minimize button that works (`canMinimize`), as a document window has and an
+    /// alert or an About panel hasn't. `stop` is asked before each window, and an app that doesn't answer isn't asked
+    /// any more: the windows found until then.
+    func windows(of process: RunningApp, until stop: () -> Bool = { false }) -> [AppWindow] {
         let pid = process.processIdentifier
-        let windows = (try? ax.elements(kAXWindowsAttribute, of: ax.application(pid))) ?? []
+        guard let windows = try? ax.elements(kAXWindowsAttribute, of: ax.application(pid)) else { return [] }
         var hidden: Bool?
-        return windows.compactMap { window -> AppWindow? in
-            guard (try? ax.role(of: window)) == kAXWindowRole else { return nil }
-            let subrole = try? ax.subrole(of: window)
-            if subrole == kAXDialogSubrole {
-                if (try? ax.number(kAXMinimizedAttribute, of: window)) != 1 {
-                    let appHidden = hidden ?? isHidden(pid)
-                    hidden = appHidden
-                    guard appHidden else { return nil }
-                }
-            } else if subrole != nil && subrole != kAXStandardWindowSubrole {
-                return nil
+        var found: [AppWindow] = []
+        for window in windows {
+            if stop() {
+                break
             }
 
-            let info = WindowInfo(
-                handle: ax.windowNumber(of: window) ?? 0, processId: Int(pid), processName: process.processName,
-                title: (try? ax.string(kAXTitleAttribute, of: window)) ?? "", appName: process.name)
-            return AppWindow(info: info, element: window)
+            do {
+                guard try ax.role(of: window) == kAXWindowRole else { continue }
+                let subrole = try ax.subrole(of: window)
+                if subrole == kAXDialogSubrole {
+                    if try ax.number(kAXMinimizedAttribute, of: window) != 1 {
+                        let appHidden = hidden ?? isHidden(pid)
+                        hidden = appHidden
+                        guard appHidden, try canMinimize(window) else { continue }
+                    }
+                } else if subrole != nil && subrole != kAXStandardWindowSubrole {
+                    continue
+                }
+
+                let title = try ax.string(kAXTitleAttribute, of: window) ?? ""
+                let info = WindowInfo(
+                    handle: ax.windowNumber(of: window) ?? 0, processId: Int(pid), processName: process.processName,
+                    title: title, appName: process.name)
+                found.append(AppWindow(info: info, element: window))
+            } catch {
+                break
+            }
         }
+
+        return found
+    }
+
+    /// The window has a minimize button that works (kAXMinimizeButtonAttribute, enabled), as a document window has, and
+    /// an alert or an About panel hasn't.
+    func canMinimize(_ window: AnyObject) throws -> Bool {
+        guard let button = try ax.element(kAXMinimizeButtonAttribute, of: window) else { return false }
+        return try ax.number(kAXEnabledAttribute, of: button) != 0
     }
 
     /// Front-most first, in the window server's order of the windows on screen; the others (minimized, hidden) after,

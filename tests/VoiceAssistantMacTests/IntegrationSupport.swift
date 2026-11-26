@@ -287,7 +287,8 @@ enum Integration {
         return lines.joined(separator: " | ")
     }
 
-    /// An app's windows as Accessibility lists them (AXWindows): number, role and subrole, whether minimized, title.
+    /// An app's windows as Accessibility lists them (AXWindows): number, role and subrole, whether minimized, its
+    /// minimize button (enabled, disabled or none), title.
     static func describeAppWindows(_ desktop: MacDesktop, _ pid: pid_t) -> String {
         let ax = desktop.ax
         let windows = (try? ax.elements(kAXWindowsAttribute, of: ax.application(pid))) ?? []
@@ -296,8 +297,13 @@ enum Integration {
             let role = (try? ax.role(of: window)) ?? "-"
             let subrole = (try? ax.subrole(of: window)) ?? "-"
             let minimized = (try? ax.number(kAXMinimizedAttribute, of: window)).map { "\($0)" } ?? "-"
+            var button = "none"
+            if let found = try? ax.element(kAXMinimizeButtonAttribute, of: window) {
+                button = (try? ax.number(kAXEnabledAttribute, of: found)) == 0 ? "disabled" : "enabled"
+            }
+
             let title = (try? ax.string(kAXTitleAttribute, of: window)) ?? "-"
-            return "\(number) \(role)/\(subrole) minimized \(minimized) \"\(title)\""
+            return "\(number) \(role)/\(subrole) minimized \(minimized) minimize button \(button) \"\(title)\""
         }
         return "\(windows.count) windows: " + lines.joined(separator: " | ")
     }
