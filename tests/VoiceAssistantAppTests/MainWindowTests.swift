@@ -12,16 +12,19 @@ import XCTest
 /// while it's in front.
 final class MainWindowTests: XCTestCase {
     @MainActor
-    func testClosingHidesTheWindowAndSaysOnceThatTheAppIsStillRunning() {
+    func testClosingHidesTheWindowAndSaysOnceThatTheAppIsStillRunning() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }
         var notices: [String] = []
+        var signs: [Bool] = []
         var restarts: [Bool] = []
-        let window = Self.window(rig, notice: { notices.append($0) }, restart: { restarts.append($0) })
+        let window = try Self.window(
+            rig, notice: { notices.append($0); signs.append($1) }, restart: { restarts.append($0) })
         XCTAssertFalse(window.isVisible, "the app brings it when it should show")
 
         XCTAssertFalse(window.windowShouldClose(NSWindow()), "closing hides it")
         XCTAssertEqual(notices, [MainWindow.stillRunning])
+        XCTAssertEqual(signs, [false], "as information")
         XCTAssertEqual(
             MainWindow.stillRunning,
             "Voice Assistant is still running in the menu bar. Click its icon › Quit Voice Assistant to quit.")
@@ -37,10 +40,10 @@ final class MainWindowTests: XCTestCase {
     }
 
     @MainActor
-    func testTheSidebarOpensPagesAndTheBoardOpensAtAList() {
+    func testTheSidebarOpensPagesAndTheBoardOpensAtAList() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }
-        let model = Self.window(rig).model
+        let model = try Self.window(rig).model
         XCTAssertEqual(model.page, .home)
         model.show(.settings)
         XCTAssertEqual(model.page, .settings)
@@ -61,7 +64,8 @@ final class MainWindowTests: XCTestCase {
         try board.add(.reminders, "Call mom", due: rig.now.value.addingTimeInterval(10 * 60))
         rig.system.microphone = .notDetermined
         let model = WindowModel(
-            home: rig.home(board: board), settings: rig.settings(), help: HelpModel(keys: KeyNames()))
+            home: rig.home(board: board), settings: rig.settings(), help: HelpModel(keys: KeyNames()),
+            board: rig.ideas(board))
         XCTAssertEqual(model.home.permissions.map(\.kind), [.microphone])
         XCTAssertEqual(model.home.upcoming.map(\.colour), [Theme.text])
         XCTAssertFalse(model.settings.startsAtLogin)
@@ -73,14 +77,15 @@ final class MainWindowTests: XCTestCase {
         model.refresh()
         XCTAssertEqual(model.home.permissions, [])
         XCTAssertEqual(model.home.upcoming.map(\.colour), [Theme.danger], "due now")
+        XCTAssertEqual(model.board.columns[3].notes.map(\.overdue), [true], "on the board too")
         XCTAssertTrue(model.settings.startsAtLogin)
     }
 
     @MainActor
-    func testWhatTheAssistantSaysReachesThePages() {
+    func testWhatTheAssistantSaysReachesThePages() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }
-        let window = Self.window(rig)
+        let window = try Self.window(rig)
         window.showStatus(AssistantStatus(mode: .command, kind: .success, message: "Opened TextEdit."))
         XCTAssertEqual(window.model.home.mode, .command)
         XCTAssertEqual(window.model.home.activity.count, 1)
@@ -100,7 +105,7 @@ final class MainWindowTests: XCTestCase {
     func testTheAppsMenuGivesTheWindowTheMacsKeys() throws {
         let rig = PageRig()
         defer { rig.folder.remove() }
-        _ = Self.window(rig)
+        _ = try Self.window(rig)
         let menu = try XCTUnwrap(NSApplication.shared.mainMenu)
         var items: [NSMenuItem] = []
         for top in menu.items {
@@ -124,12 +129,13 @@ final class MainWindowTests: XCTestCase {
 
     @MainActor
     private static func window(
-        _ rig: PageRig, notice: @escaping @MainActor (String) -> Void = { _ in },
+        _ rig: PageRig, notice: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         restart: @escaping @MainActor (Bool) -> Void = { _ in }
-    ) -> MainWindow {
+    ) throws -> MainWindow {
         _ = NSApplication.shared
         let window = MainWindow(
-            settings: AppSettings(), paths: rig.paths, board: nil, assistant: rig.assistant, brain: rig.brain,
+            settings: AppSettings(), paths: rig.paths, board: try rig.board(), assistant: rig.assistant,
+            brain: rig.brain,
             keys: KeyNames(), startAtLogin: rig.login.item, restart: restart, notice: notice,
             permissions: Permissions(system: rig.system), opener: rig.opener)
         return window

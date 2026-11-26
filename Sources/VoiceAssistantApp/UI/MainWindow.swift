@@ -15,10 +15,10 @@ public final class WindowModel: ObservableObject {
     public let home: HomeModel
     public let settings: SettingsModel
     public let help: HelpModel
-    /// The idea board's page; nil without a board.
-    public let board: BoardModel?
+    /// The idea board's page.
+    public let board: BoardModel
 
-    public init(home: HomeModel, settings: SettingsModel, help: HelpModel, board: BoardModel? = nil) {
+    public init(home: HomeModel, settings: SettingsModel, help: HelpModel, board: BoardModel) {
         self.home = home
         self.settings = settings
         self.help = help
@@ -36,7 +36,7 @@ public final class WindowModel: ObservableObject {
         boardList = list
         page = .ideas
         if let list {
-            board?.highlight(list)
+            board.highlight(list)
         }
     }
 
@@ -45,7 +45,7 @@ public final class WindowModel: ObservableObject {
     public func refresh() {
         home.refreshPermissions()
         home.refreshReminders()
-        board?.refresh()
+        board.refresh()
         settings.refresh()
     }
 }
@@ -69,7 +69,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
     private let window: NSWindow
     private let content: NSHostingView<MainWindowView>
-    private let notice: @MainActor (String) -> Void
+    private let notice: @MainActor (_ message: String, _ warning: Bool) -> Void
     private var toldAboutMenuBar = false
 
     /// - Parameters:
@@ -81,21 +81,22 @@ public final class MainWindow: NSObject, NSWindowDelegate {
     ///   - keys: The keys the texts name.
     ///   - startAtLogin: "Start when I log in".
     ///   - restart: Starts a fresh copy of the app, with its window open when `windowVisible` ("Save and restart").
-    ///   - notice: Says something by the menu bar icon (Windows' tray balloon), as when the board can't save a change.
+    ///   - notice: Says something by the menu bar icon (Windows' tray balloon), with a warning sign when `warning`:
+    ///     that the app still runs, the first time the window is closed; what went wrong, when the board can't save a
+    ///     change (Windows' "Something went wrong").
     ///   - permissions: What macOS allows, for Home's "Permissions needed".
     ///   - opener: Finder, TextEdit and System Settings.
     public init(
-        settings: AppSettings, paths: AppPaths, board: BoardStore?, assistant: AssistantControls,
+        settings: AppSettings, paths: AppPaths, board: BoardStore, assistant: AssistantControls,
         brain: BrainControls?, keys: KeyNames, startAtLogin: StartAtLogin,
-        restart: @escaping @MainActor (_ windowVisible: Bool) -> Void, notice: @escaping @MainActor (String) -> Void,
+        restart: @escaping @MainActor (_ windowVisible: Bool) -> Void,
+        notice: @escaping @MainActor (_ message: String, _ warning: Bool) -> Void,
         permissions: Permissions = Permissions(), opener: FileOpener = WorkspaceOpener()
     ) {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
-        let ideas: BoardModel? = board.map { (store: BoardStore) -> BoardModel in
-            BoardModel(board: store, keys: keys, report: notice)
-        }
+        let ideas = BoardModel(board: board, keys: keys, report: { (problem: String) in notice(problem, true) })
         let model = WindowModel(
             home: HomeModel(
                 assistant: assistant, board: board, keys: keys, permissions: permissions,
@@ -213,7 +214,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
 
         if !toldAboutMenuBar {
             toldAboutMenuBar = true
-            notice(Self.stillRunning)
+            notice(Self.stillRunning, false)
         }
     }
 
@@ -290,11 +291,7 @@ struct MainWindowView: View {
         case .home:
             HomePage(model: model.home).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .ideas:
-            if let board = model.board {
-                IdeasPage(model: board).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
-            } else {
-                IdeasPlaceholderPage().modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
-            }
+            IdeasPage(model: model.board).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .settings:
             SettingsPage(model: model.settings).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .help:
@@ -365,19 +362,5 @@ struct Sidebar: View {
         style.padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
         style.fillsWidth = true
         return style
-    }
-}
-
-/// The idea board's place in a window without a board (the app always has one: it doesn't start without board.json).
-struct IdeasPlaceholderPage: View {
-    static let text = "The idea board isn't open."
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Theme.heading("Idea board")
-            Theme.label(Self.text, colour: Theme.muted)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

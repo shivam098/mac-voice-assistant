@@ -61,6 +61,13 @@ final class PageRig {
         return try BoardStore(path: nil, clock: { now.value }, timeZone: timeZone)
     }
 
+    /// An empty board's page, for a window that needs one (a board in memory reads no file, so it can't fail).
+    func emptyIdeas() -> BoardModel {
+        let now = self.now
+        let board = try! BoardStore(path: nil, clock: { now.value }, timeZone: timeZone)
+        return ideas(board)
+    }
+
     /// What the board's page asked to run later (the glow's end, the fade-ins'), in order; `runLater()` runs it.
     private(set) var later: [(seconds: TimeInterval, body: @MainActor @Sendable () -> Void)] = []
     /// What the board's page said went wrong.

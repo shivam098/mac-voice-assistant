@@ -136,7 +136,7 @@ extension UIRenderTests {
     ) -> WindowModel {
         WindowModel(
             home: home ?? rig.home(board: nil, keys: keys), settings: settings ?? rig.settings(keys: keys),
-            help: HelpModel(keys: keys), board: board)
+            help: HelpModel(keys: keys), board: board ?? rig.emptyIdeas())
     }
 
     /// The window's contents at its size when it opens.

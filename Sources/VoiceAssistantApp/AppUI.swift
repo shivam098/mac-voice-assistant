@@ -73,8 +73,8 @@ final class AppUI {
         /// The menu bar item, with the hotkeys its menu shows and what its items do.
         var menuBar: @MainActor (MenuHotkeys, MenuActions) -> MenuBarItem
 
-        /// The window, given how it says something by the menu bar icon.
-        var window: @MainActor (_ notice: @escaping @MainActor (String) -> Void) -> AppWindow
+        /// The window, given how it says something by the menu bar icon: the message, and whether it's a warning.
+        var window: @MainActor (_ notice: @escaping @MainActor (String, Bool) -> Void) -> AppWindow
 
         /// A reminder's card.
         var card: ReminderCards.MakeCard
@@ -139,7 +139,9 @@ final class AppUI {
             commandModeIsIdle: !settings.wakeWordEnabled, keyName: keys.dictation, languageKeys: keys.hotkeys.language,
             minimized: StateFlags.isSet(paths.overlayMinimizedFlag))
         menuBar = parts.menuBar(keys.hotkeys, menuActions())
-        window = parts.window({ [weak self] message in self?.menuBar.showBalloon(message, warning: false) })
+        window = parts.window({ [weak self] (message: String, warning: Bool) in
+            self?.menuBar.showBalloon(message, warning: warning)
+        })
         reminders = ReminderCards(
             board: board,
             openBoard: { [weak self] in self?.window.showBoard(.reminders) },
