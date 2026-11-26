@@ -1,0 +1,39 @@
+name: check-release.sh cases (temporary)
+
+# TEMPORARY, removed before merging, with scripts/check-release-cases.sh: scripts/check-release.sh's cases run with a
+# Mac's own /bin/bash 3.2 and BSD sed, grep, awk and tr, and with Ubuntu's bash and GNU tools, on each push to
+# release-1.
+on:
+  push:
+    branches: [release-1]
+
+permissions:
+  contents: read
+
+jobs:
+  cases:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS 15, /bin/bash
+            runner: macos-15
+          - name: Ubuntu, /bin/bash
+            runner: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The shell and the tools
+        run: |
+          /bin/bash --version | head -n 1
+          for tool in sed grep awk tr env git gh; do echo "$tool: $(command -v "$tool")"; done
+          { sed --version 2>&1 || true; } | head -n 1
+
+      - name: The cases, with /bin/bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_SHELL: /bin/bash
+        run: /bin/bash scripts/check-release-cases.sh .
