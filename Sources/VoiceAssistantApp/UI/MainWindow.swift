@@ -284,15 +284,18 @@ struct MainWindowView: View {
 /// The sidebar (MainWindow.cs): the logo and the name, a button for each page (the open one tinted and in semibold),
 /// and where everything stays.
 struct Sidebar: View {
-    /// A page's button.
+    /// A page's button: Windows' label, whose emoji WPF draws in the text's colour, as the symbol is here.
     struct Item {
         let page: AppPage
+        let symbol: String
         let label: String
     }
 
     static let items = [
-        Item(page: .home, label: "🏠  Home"), Item(page: .ideas, label: "💡  Idea board"),
-        Item(page: .settings, label: "⚙  Settings"), Item(page: .help, label: "❔  What you can say"),
+        Item(page: .home, symbol: "house", label: "Home"),
+        Item(page: .ideas, symbol: "lightbulb", label: "Idea board"),
+        Item(page: .settings, symbol: "gearshape", label: "Settings"),
+        Item(page: .help, symbol: "questionmark.circle", label: "What you can say"),
     ]
 
     static let privacy = "Runs on this Mac. Speech, notes and settings never leave it."
@@ -308,10 +311,17 @@ struct Sidebar: View {
                     .foregroundStyle(Color(Theme.text))
             }
             .padding(EdgeInsets(top: 0, leading: 8, bottom: 20, trailing: 0))
-            ForEach(Self.items, id: \.page) { item in
-                Button(item.label) { model.show(item.page) }
-                    .buttonStyle(Self.style(selected: model.page == item.page))
-                    .padding(.bottom, 4)
+            ForEach(Self.items, id: \.page) { (item: Item) in
+                Button {
+                    model.show(item.page)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: item.symbol).frame(width: 18).accessibilityHidden(true)
+                        Text(verbatim: item.label)
+                    }
+                }
+                .buttonStyle(Self.style(selected: model.page == item.page))
+                .padding(.bottom, 4)
             }
 
             Theme.label(Self.privacy, size: 11, colour: Theme.muted)

@@ -77,7 +77,9 @@ extension UIRenderTests {
             rig.brain.status = .failed("The download stopped: the network connection was lost. Download carries on.")
             rig.brain.canDownload = true
             rig.login.works = false
-            let failed = rig.settings(keys: KeyNames(dictation: "Right Option"))
+            var rightOption = AppSettings()
+            rightOption.dictationKey = .rightOption
+            let failed = rig.settings(rightOption, keys: KeyNames(dictation: "Right Option"))
             failed.setStartsAtLogin(true)
             failed.fields[failed.index("awakeSeconds")].text = "500"
             failed.save()
@@ -147,10 +149,10 @@ extension UIRenderTests {
         window(model(rig, home: home))
     }
 
-    /// The whole Settings page, without its scroll.
+    /// The whole Settings page, without its scroll, at its widest (760 and the page's margins).
     @MainActor
     private static func settings(_ model: SettingsModel) -> some View {
-        SettingsContent(model: model).padding(24).background(Color(Theme.background))
+        SettingsContent(model: model).padding(24).frame(width: 808).background(Color(Theme.background))
     }
 
     /// The AI brain's card in each state.

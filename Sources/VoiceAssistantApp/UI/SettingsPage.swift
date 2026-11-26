@@ -646,7 +646,7 @@ struct SettingsFieldView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 160))
+                .frame(width: 160, alignment: .leading))
         case .lines:
             labelled(
                 TextEditor(text: $field.text)

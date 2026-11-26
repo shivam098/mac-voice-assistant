@@ -374,7 +374,7 @@ struct HomeContent: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .font(.system(size: 13))
-            .frame(width: 320)
+            .frame(width: 320, alignment: .leading)
             .padding(.bottom, 4)
             Theme.label(model.languageHint, size: 12, colour: Theme.muted)
         }
