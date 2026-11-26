@@ -88,7 +88,8 @@ The porting guide's capability map is the plan. These are the points it leaves o
   the Dock's spans the screen). Jarvis's own pill, reminder cards and balloons cover what's under them, as on Windows.
   An action the app doesn't answer in time isn't followed by a click: the app may be doing it still (AppKit runs a
   pop-up button's menu inside the press). The numbers and the click outline are a borderless panel above other
-  windows that clicks go through and that never takes the focus.
+  windows that clicks go through, that never takes the focus, and that stays when Jarvis hides (closing its window
+  hides the app), as the pill and the reminder cards do.
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.

@@ -581,6 +581,66 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual([CGPoint(x: 330, y: 210)], rig.pointer.clicks)
     }
 
+    /// AppKit runs a pop-up button's menu inside the press, so the press may get no answer while the menu shows: the
+    /// menu under it says the press worked. Without one, or under another kind of button, the app didn't answer.
+    func testAPopUpButtonWhoseMenuShowsWasClicked() async throws {
+        let rig = Rig()
+        let format = make(kAXPopUpButtonRole, "Format", x: 10, y: 50, width: 120, height: 24)
+        format.actionNames = [kAXPressAction]
+        let save = make(kAXButtonRole, "Save", x: 300, y: 50, width: 60, height: 24)
+        save.actionNames = [kAXPressAction]
+        let window = try front(rig, [format, save])
+        let found = try await rig.desktop.listClickable(window)
+        let popUp = try XCTUnwrap(found.first { $0.name == "Format" })
+        let button = try XCTUnwrap(found.first { $0.name == "Save" })
+        format.outcome = .noAnswer
+        save.outcome = .noAnswer
+        let unanswered = DesktopResult.fail("TextEdit didn't answer, so I didn't click again.")
+
+        var result = try await rig.desktop.click(popUp)
+        XCTAssertEqual(unanswered, result)
+
+        format.children = [make(kAXMenuRole, x: 10, y: 74, width: 160, height: 200)]
+        result = try await rig.desktop.click(popUp)
+        XCTAssertEqual(.ok("Clicked."), result)
+        XCTAssertEqual("accessibility action got no answer, but its menu shows", rig.log.lines.last)
+
+        save.children = [make(kAXMenuRole, x: 300, y: 74, width: 160, height: 200)]
+        result = try await rig.desktop.click(button)
+        XCTAssertEqual(unanswered, result)
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
+    }
+
+    /// A text whose value gets no answer isn't taken for one without a value: the row it would name isn't handed out
+    /// with a name short of it, and a row confirmed before isn't clicked once its text stops answering.
+    func testANameWithATextThatDidntAnswerIsntUsed() async throws {
+        let rig = Rig()
+        let new = make(kAXButtonRole, "New", y: 50)
+        let time = text("11:25 am", x: 230, y: 120)
+        let row = make(kAXRowRole, x: 0, y: 120, width: 600, height: 60)
+        row.children = [text("Family", y: 120), time]
+        let grid = make(kAXTableRole, x: 0, y: 100, width: 600, height: 400)
+        grid.children = [row]
+        let page = make(AXName.webArea, x: 0, y: 80, width: 1000, height: 700)
+        page.children = [grid]
+        let window = try front(rig, [new, page])
+        let found = try await rig.desktop.listClickable(window)
+        XCTAssertEqual(["New", "Family 11:25 am"], found.map(\.name))
+
+        // The text itself answers, then its value doesn't.
+        rig.ax.onNode = { element in
+            if element === time {
+                element.answers = false
+            }
+        }
+
+        let again = try await rig.desktop.listClickable(window)
+        XCTAssertEqual(["New"], again.map(\.name))
+        let result = try await rig.desktop.click(found[1])
+        XCTAssertEqual(.fail("I couldn't click that (that changed on screen)."), result)
+        XCTAssertTrue(rig.pointer.clicks.isEmpty)
+    }
+
     /// Work whose 4 s are up never acts: the time is checked right before each Accessibility action and right before a
     /// real click (after finding where it lands and waiting for modifier keys), and a row whose real click ran out of
     /// time isn't selected instead.

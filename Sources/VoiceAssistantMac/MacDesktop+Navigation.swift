@@ -269,7 +269,7 @@ extension MacDesktop {
     /// placeholder (`labelName`), else the text inside it, as Chromium names a row or a link by its contents: all of
     /// it in a web page (a WhatsApp chat row is "1 unread message Bibhash Morang 11:27 am…"), the first cell's for a
     /// row of a Mac app's table or outline (Finder's file name, as Explorer names a row). Empty when it has none; nil
-    /// when the text inside it couldn't be read in full: an element there got no answer, or `deadline` (on the
+    /// when it couldn't be read in full: a read got no answer (which isn't the same as no value), or `deadline` (on the
     /// desktop's clock) passed.
     func clickableName(_ element: AnyObject, _ node: AXNode, inPage: Bool, deadline: TimeInterval? = nil) -> String? {
         for text in [node.title, node.label] {
@@ -278,7 +278,14 @@ extension MacDesktop {
             }
         }
 
-        if let labelled = try? ax.labelName(of: element), !DotNet.isNullOrWhiteSpace(labelled) {
+        let labelled: String
+        do {
+            labelled = try ax.labelName(of: element)
+        } catch {
+            return nil
+        }
+
+        if !DotNet.isNullOrWhiteSpace(labelled) {
             return DotNet.trim(labelled)
         }
 
@@ -287,8 +294,8 @@ extension MacDesktop {
 
     /// The text inside an element (its name from contents): the values of its texts and text fields, in order, joined
     /// by spaces; read from at most 40 elements 4 levels down, at most 400 UTF-16 units. With `firstOnly`, only the
-    /// first child that has some. Nil when an element there got no answer or `deadline` passed: what was read would be
-    /// only part of it.
+    /// first child that has some. Nil when a read there got no answer or `deadline` passed: what was read would be only
+    /// part of it.
     func contentsText(_ children: [AnyObject], firstOnly: Bool, deadline: TimeInterval? = nil) -> String? {
         var parts: [String] = []
         var read = 0
@@ -308,7 +315,15 @@ extension MacDesktop {
             read += 1
             switch node.role ?? "" {
             case kAXStaticTextRole, kAXTextFieldRole:
-                let text = (try? ax.string(kAXValueAttribute, of: element)) ?? node.title ?? ""
+                let value: String?
+                do {
+                    value = try ax.string(kAXValueAttribute, of: element)
+                } catch {
+                    cutShort = true
+                    return
+                }
+
+                let text = value ?? node.title ?? ""
                 if !DotNet.isNullOrWhiteSpace(text) {
                     parts.append(DotNet.trim(text))
                 }
@@ -561,6 +576,11 @@ extension MacDesktop {
             case .noAnswer:
                 // kAXErrorCannotComplete doesn't mean it wasn't done: the app may be doing it still (AppKit runs a
                 // pop-up button's menu inside the press), and a real click now could do it twice or close the menu.
+                if case .press = way, menuShows(under: element, role: role) {
+                    log("accessibility action got no answer, but its menu shows")
+                    return nil
+                }
+
                 log("accessibility action got no answer, not clicking again")
                 return Self.unanswered
             case .unsupported:
@@ -644,6 +664,17 @@ extension MacDesktop {
 
     /// What a click on an app's row may land on besides the row itself: its cells, and text and images in them.
     static let rowParts: Set<String> = [kAXCellRole, kAXStaticTextRole, kAXImageRole]
+
+    /// Whether a pop-up or menu button's menu shows: AppKit lists it among the button's children, with a frame, while
+    /// it's open. A press that got no answer then worked: AppKit may answer it only once the menu closes.
+    func menuShows(under element: AnyObject, role: String?) -> Bool {
+        guard role == kAXPopUpButtonRole || role == kAXMenuButtonRole,
+              let children = try? ax.elements(kAXChildrenAttribute, of: element) else { return false }
+        return children.contains { child in
+            guard (try? ax.role(of: child)) == kAXMenuRole, let frame = try? ax.frame(of: child) else { return false }
+            return !frame.isEmpty
+        }
+    }
 
     /// C#'s `ClickAt`: a real left click at a point of the screen, only if a click there lands in `window`, once held
     /// modifier keys are let go, and only if the time isn't up then; then the pointer goes back where it was. Nil when

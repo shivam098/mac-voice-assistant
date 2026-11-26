@@ -190,6 +190,8 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   appear: say the number.
 - [ ] **"Show numbers".** Numbers appear on everything you can click; say one ("seven") and it's clicked (a text box
   starts typing). "Hide numbers" takes them away.
+- [ ] **Close Voice Assistant's window, then say "Hey Jarvis, show numbers".** The numbers appear (closing the window
+  hides the app, which mustn't take the numbers with it). Numbers already showing stay when you close the window.
 - [ ] **In Chrome, after "show numbers" or a click by name: "maximize this window".** The window fills the screen at
   once, as in other apps. (To describe its pages, Chrome is asked for what VoiceOver asks for, which can make window
   moves animate slowly in some apps; Rectangle or Magnet moving Chrome's window is worth a look too.)

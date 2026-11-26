@@ -112,6 +112,8 @@ public final class MarkerOverlay {
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
+        // Closing Jarvis's window hides the app (`NSApp.hide`): the numbers stay, as the pill and the reminder cards do.
+        panel.canHide = false
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -148,6 +150,9 @@ public final class MarkerOverlay {
 
     /// The panel's window number while it shows; nil while it's hidden.
     var windowNumber: Int? { panel.isVisible ? panel.windowNumber : nil }
+
+    /// Whether the panel goes when the app hides (NSWindow.canHide): never.
+    var hidesWithTheApp: Bool { panel.canHide }
 
     /// What the panel shows now; nil when it's hidden.
     var layout: OverlayLayout? { canvas.layout }

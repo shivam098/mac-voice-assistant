@@ -3,7 +3,8 @@ import VoiceAssistantCore
 import XCTest
 @testable import VoiceAssistantMac
 
-/// Where the overlay's panel goes and what it draws (C#'s `MarkerOverlay.Render`), without AppKit.
+/// Where the overlay's panel goes and what it draws (C#'s `MarkerOverlay.Render`), without AppKit; and that its panel
+/// stays when Jarvis hides.
 final class OverlayLayoutTests: XCTestCase {
     /// The panel covers every badge's rectangle with 40 points around; each badge sits 6 points above and left of its
     /// element's corner.
@@ -50,5 +51,12 @@ final class OverlayLayoutTests: XCTestCase {
         let badge = ChoiceBadge(number: 1, rect: ScreenRect(x: 100, y: 200, width: 50, height: 20), label: "New")
         let layout = try XCTUnwrap(OverlayLayout(badges: [badge], flash: nil))
         XCTAssertEqual(CGRect(x: 60, y: 1080 - 260, width: 130, height: 100), layout.panelFrame(mainTop: 1080))
+    }
+
+    /// The panel stays on screen when Jarvis hides (closing its window hides the app), as the pill and the reminder
+    /// cards do: the numbers still show, and "show numbers" still draws them.
+    @MainActor
+    func testThePanelStaysWhenJarvisHides() {
+        XCTAssertFalse(MarkerOverlay().hidesWithTheApp)
     }
 }
