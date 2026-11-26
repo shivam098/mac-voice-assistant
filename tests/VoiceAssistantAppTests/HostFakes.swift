@@ -487,16 +487,17 @@ final class HostRig {
 
     /// - Parameters:
     ///   - present: The model files already on this Mac.
-    ///   - post: Where the host raises its events: `events` by default; the main thread for the app's UI.
     ///   - prepare: Runs before the host is made, with its folders.
+    ///   - post: Where the host raises its events: `events` by default; the main thread for the app's UI. After
+    ///     `prepare`, so `HostRig { paths in … }` gives `prepare`.
     init(
         settings: AppSettings = HostRig.settings(),
         present: Set<String> = [FakeModels.small, FakeModels.vad],
         brain: FakeBrain? = nil,
         board: Board? = nil,
         persistMemory: Bool = true,
-        post: AssistantHost.Post? = nil,
-        prepare: (AppPaths) -> Void = { _ in }
+        prepare: (AppPaths) -> Void = { _ in },
+        post: AssistantHost.Post? = nil
     ) {
         folder = TempFolder()
         paths = AppPaths(data: folder.path, logs: folder.file("logs"))
