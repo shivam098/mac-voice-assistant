@@ -190,6 +190,9 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   appear: say the number.
 - [ ] **"Show numbers".** Numbers appear on everything you can click; say one ("seven") and it's clicked (a text box
   starts typing). "Hide numbers" takes them away.
+- [ ] **In Chrome, after "show numbers" or a click by name: "maximize this window".** The window fills the screen at
+  once, as in other apps. (To describe its pages, Chrome is asked for what VoiceOver asks for, which can make window
+  moves animate slowly in some apps; Rectangle or Magnet moving Chrome's window is worth a look too.)
 - [ ] **"Start typing in the search box".** It types into the page's search box, never the address bar.
 - [ ] **"Click" a button that deletes, signs out or pays** (on something you don't mind losing). It asks for a "yes"
   first; "no" does nothing.
