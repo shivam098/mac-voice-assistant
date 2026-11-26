@@ -133,6 +133,6 @@ guide explains each one, like ThumbFree's.
 | 1. Board in Swift | The ported board tests pass on macOS CI. It needs nothing else, so it starts now | Done |
 | 2. Core in Swift | The ported core tests pass on macOS CI, on ThumbFree's Swift core (thumbfree-mac phase 1) | Done: every C# core test is ported, the brain's controller tests also run with the Mac's rules, and differential runs matched the C# |
 | 3. Desktop layer | Apps, windows, Accessibility scans, clicks, tabs, focus and shortcuts work in the NavigationLab pages on a real Mac | Next |
-| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | UI parts 1 (the menu bar, the pill and the reminder cards) and 2 (the window: Home, Settings and What you can say), drawn on CI, are in review; the idea board's page and the wiring are next |
+| 4. App | Menu bar, wake word and commands, the pill, Fn dictation (thumbfree-mac phases 2 and 3), the window and the idea board, reminders | UI part 1 (the menu bar, the pill and the reminder cards) is done and part 2 (the window: Home, Settings and What you can say) is in review, both drawn on CI; the idea board's page and the wiring are next |
 | 5. AI brain | The brain's test requests come out right as often as on Windows, on an Apple silicon Mac | |
 | 6. Test builds and release | As for ThumbFree for Mac: a `.dmg` from CI, the real-Mac checklist, then Developer ID and notarization | |
