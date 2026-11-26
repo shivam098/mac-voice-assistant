@@ -12,9 +12,10 @@ PRs. Until now everything has been built and tested only on GitHub's macOS runne
 Jarvis for Mac (the app is called Voice Assistant; you wake it with "Hey Jarvis"): hands-free voice control for macOS.
 Open apps, dictate, navigate and send by voice, with an optional offline AI brain, all on the Mac. It's a port of the
 Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for Mac's (shivam098/thumbfree-mac), which
-this package uses at the tip of that repo's main. docs/design.md is the design and has the phase table.
+this package pins to a commit of that repo's main (`606d7a4` for v0.1.0); the Mac workflow's daily run builds against
+the tip of its main instead, to catch a change there. docs/design.md is the design and has the phase table.
 
-Merged (main was `55f0b5f` when this was last updated):
+Merged (main was `645c0c8` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -36,23 +37,26 @@ Merged (main was `55f0b5f` when this was last updated):
   app) and the v0.1.0 release notes.
 - **The UI wiring** (#24): the menu bar, the pill, the window and the reminder cards are connected to the host, so the
   App workflow's .dmg is the whole app. The App workflow also opens the built app and checks that it starts.
+- **The window's polish and the idea board page** (#23, #27): VoiceOver names, text boxes macOS doesn't alter, and the
+  idea board in the window.
+- **The desktop layer, part 2** (#25): navigation (clicking by name, number badges, browser tabs in Chrome, Edge, Brave
+  and Safari), tested for real in Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
 
 In review or being built on the Windows PC, through PRs (check `gh pr list`):
 
-- **#25, the desktop layer, part 2:** navigation (clicking by name, number badges, browser tabs), tested for real in
-  Chrome, Edge, Safari, Finder, System Settings and TextEdit on GitHub's Mac.
-- **#23 and #27:** a small polish PR for the window (VoiceOver names, and text boxes macOS doesn't alter), and the idea
-  board page.
-- **Then:** the desktop layer's part 3 (the NavigationLab acceptance tests N1–N9 through the self-test runner), and the
-  release PR (pin thumbfree-mac, then run the Release workflow).
+- **The desktop layer, part 3** (branch `desktop-3`): listing and activating windows, and the NavigationLab acceptance
+  tests N1–N9 through the self-test runner on GitHub's Mac.
+- **The v0.1.0 release** (branch `release-0.1.0`): thumbfree-mac pinned, the daily canary against its main, and the
+  docs for the finished app. Once it has merged, the Release workflow publishes the v0.1.0 pre-release.
 
 The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
 gone.
 
-**What that means on this Mac today:** the App workflow's .dmg from main launches into the whole app; navigation by
-name and numbers comes with #25. So: set up the Mac, run every test, including the ones that need a real Mac (sections
-3 and 5), measure the AI brain on a real graphics chip, then install the latest .dmg from main (or v0.1.0 once it's
-released) and go through the app checklist in section 5.
+**What that means on this Mac today:** the App workflow's .dmg from main is the whole app, navigation included, and
+testing on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building there needs #19 (Swift
+6.3's type check) until it merges. So: set up the Mac, run every test, including the ones that need a real Mac
+(sections 3 and 5), measure the AI brain on a real graphics chip, then install v0.1.0 once it's released (or the latest
+.dmg from main) and go through the app checklist in section 5.
 
 Before you start, see what has changed since this was written:
 
@@ -89,7 +93,7 @@ gh run list --branch main --limit 3
 ## 3. Build and test
 
 ```sh
-swift package update     # thumbfree-mac at the tip of its main, as CI does (Package.resolved isn't committed)
+swift package update     # thumbfree-mac at the commit Package.swift pins, as CI does (Package.resolved isn't committed)
 swift build -c release
 swift test
 ```

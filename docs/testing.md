@@ -1,9 +1,10 @@
 # Testing Jarvis for Mac on a real Mac
 
-GitHub's Macs build Jarvis for Mac (the app is called Voice Assistant; you wake it with "Hey Jarvis") and run its tests
-on every change, but they have no microphone, no keyboard, nobody to give permissions and no graphics chip the AI brain
-can use. This page is for a person with a Mac: how to install a test build, and one checklist to test it with. Tick
-what works, and report what doesn't (see the end).
+GitHub's Macs build Jarvis for Mac (the app is called Voice Assistant; you wake it with "Hey Jarvis") on every change,
+run its tests, open the app to check that it starts into its menu bar icon, pill and window, and drive TextEdit, the
+browsers, Finder and System Settings through it. But they have no microphone, nobody to speak or give permissions, and
+no graphics chip the AI brain can use. This page is for a person with a Mac: how to install a test build, and one
+checklist to test it with. Tick what works, and report what doesn't (see the end).
 
 A coding agent on a Mac starts with [HANDOFF-mac.md](HANDOFF-mac.md): how to build, the tests that need a real Mac, and
 how to record results.
@@ -29,13 +30,16 @@ how to record results.
    them: open Voice Assistant once, then go to System Settings › Privacy & Security and choose **Open Anyway**.
    (Right-click › Open no longer works on macOS 15 and later. A `.dmg` downloaded with `gh` isn't marked as coming from
    the internet, so macOS may not ask at all.)
-5. **Permissions.** Voice Assistant needs:
-   - the **microphone**: macOS asks the first time it listens;
+5. **Permissions.** The window opens at Home, whose "Permissions needed" card lists what macOS hasn't allowed yet, each
+   with **Allow…**, which asks macOS (and then, since macOS asks only once, **Open System Settings**):
+   - the **microphone**, to hear "Hey Jarvis", commands and dictation;
    - **Accessibility** (System Settings › Privacy & Security › Accessibility), to read other apps' windows and
      buttons, to click them, and to press keys and type;
-   - **Automation** for Safari, which macOS asks for the first time you ask for one of Safari's tabs;
-   - perhaps **Input Monitoring**, for the Fn key: whether it's needed is still to be found out, so note whether macOS
-     asks for it.
+   - **Input Monitoring**, listed only while Accessibility isn't allowed, when the Fn key falls back to it. Whether Fn
+     needs it on a real Mac is still to be found out, so note whether macOS asks for it.
+
+   Safari's tabs also need **Automation**, which macOS asks for the first time you ask for one of them. The card follows
+   System Settings within a few seconds, and goes once everything is allowed.
 6. **Each new test build** needs Accessibility given again, because a test build's signature changes every time. If
    Accessibility looks on but Voice Assistant can't use it, run
    `tccutil reset Accessibility io.github.shivam098.voiceassistant` (or remove Voice Assistant from the list), then
@@ -51,9 +55,10 @@ how to record results.
    `brain/` are in `~/Library/Application Support/VoiceAssistant`; the logs are in `~/Library/Logs/VoiceAssistant`.
    The logs never contain your words.
 
-Releases are built by CI: the Release workflow builds the `.dmg` on GitHub's macOS 15 runner, with Xcode 16.4. To build
-it from source instead (`scripts/make-app.sh`; HANDOFF-mac.md sections 2 to 4), use Xcode 16.4 or later: CI builds
-with Xcode 16.4, and the owner's Mac with Xcode 26.6 (Swift 6.3.3).
+Releases are built by CI: the Release workflow builds the `.dmg` on GitHub's macOS 15 runner, with Xcode 16.4 and
+thumbfree-mac pinned to a commit, and checks that it starts. To build it from source instead (`scripts/make-app.sh`;
+HANDOFF-mac.md sections 2 to 4), use Xcode 16.4 or later: CI builds with Xcode 16.4, and the owner's Mac with Xcode 26.6
+(Swift 6.3.3), where it also needs [#19](https://github.com/shivam098/mac-voice-assistant/pull/19) until that is merged.
 
 ## Checklist
 
@@ -62,25 +67,28 @@ down.
 
 ### First run and permissions
 
-- [ ] **Open it the first time** (step 4 above). Its icon appears in the menu bar (there's no Dock icon), and the
-  status pill near the bottom of the screen says it's starting.
-- [ ] **Allow the microphone** when macOS asks. Once the speech models are there, the pill says it's waiting for "Hey
-  Jarvis", and macOS's orange microphone dot is on.
-- [ ] **Watch the first run's download.** The pill shows its progress; afterwards
+- [ ] **Open it the first time** (step 4 above). The window opens at Home with "Permissions needed", the status pill
+  appears at the bottom of the screen, and its icon in the menu bar (there's no Dock icon).
+- [ ] **Watch the first run's download.** The pill shows its progress; then macOS asks for the microphone. Allow it: the
+  pill says it's waiting for "Hey Jarvis", and macOS's orange microphone dot is on. Afterwards
   `ls ~/Library/Application\ Support/VoiceAssistant/models` lists `ggml-small.en-q8_0.bin` and
   `ggml-silero-v6.2.0.bin`. How long did it take? With ThumbFree for Mac's models already on the Mac, the ones it has
   aren't downloaded again.
-- [ ] **Tap Fn before Accessibility is on.** A notice says the key can't be seen yet. **Turn Accessibility on:** Fn
-  works without a restart.
-- [ ] **Input Monitoring:** did macOS ask for it? Does Fn work without it?
+- [ ] **Home's Allow… buttons.** Each asks macOS; Accessibility's also puts Voice Assistant in System Settings' list,
+  where it isn't before. After that the button says Open System Settings. Allow something in System Settings: within
+  a few seconds Home's card follows, without clicking the window, and it goes once everything is allowed.
+- [ ] **Tap Fn before Accessibility is on.** A notice by the menu bar icon says the key can't be seen yet. **Turn
+  Accessibility on:** Fn works without a restart, and the notice doesn't come back.
+- [ ] **Input Monitoring:** did macOS ask for it? Does Fn work without it once Accessibility is on?
 - [ ] **Open Voice Assistant again while it runs** (from Applications, or `open -a "Voice Assistant"`). No second copy
   starts: the running one opens its window.
 
 ### The menu bar and the pill
 
-- [ ] **Click the menu bar icon.** Its menu opens: Open Voice Assistant, the status, pause or resume listening, the
-  dictation language, Always show status pill, Start when I log in, Settings… and Quit Voice Assistant. The icon reads
-  well on light and dark menu bars, and its dot follows the mode.
+- [ ] **Click the menu bar icon.** Its menu opens: Open Voice Assistant, Idea board, the status, Pause listening (or
+  Start listening), Paste last dictation, Dictation language (English, Hindi + English — fast, and — accurate), What
+  you can say, Settings…, Always show status pill, Start when I log in and Quit Voice Assistant; Copy text that wasn't
+  typed shows only while there's some. The icon reads well on light and dark menu bars, and its dot follows the mode.
 - [ ] **Open Voice Assistant** (the menu's first item). Its window opens: Home, the Idea board, Settings and What you
   can say.
 - [ ] **Use it for a while.** The pill shows each state: waiting for "Hey Jarvis", listening for a command, typing,
@@ -178,7 +186,7 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   kept when you close the window, click another app or quit. Everything is still there after quitting and opening
   Voice Assistant again.
 
-### Navigation by name and by numbers, in Safari and Chrome
+### Navigation by name and by numbers, in Safari, Chrome and Edge
 
 - [ ] **In Chrome, with a few tabs open: "go to the first tab", "last tab", "go to the YouTube tab", "go to the tab
   where WhatsApp is open".** Each goes to that tab.
@@ -301,4 +309,4 @@ It needs Apple silicon and macOS 13.3 or later. On an Intel Mac, check only that
   `~/Library/Application Support/VoiceAssistant` and `~/Library/Logs/VoiceAssistant`, and run
   `tccutil reset All io.github.shivam098.voiceassistant`.
 
-The checklists in pull requests #14 and #15 have more detail behind some of these items.
+The checklists in pull requests #14, #15, #22, #24, #25 and #27 have more detail behind some of these items.
