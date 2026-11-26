@@ -151,6 +151,9 @@ final class HomePageTests: XCTestCase {
         XCTAssertEqual(rows.map(\.name), ["Microphone", "Accessibility", "Input Monitoring"])
         XCTAssertEqual(rows.map(\.button), ["Allow…", "Allow…", "Allow…"])
         XCTAssertEqual(
+            rows.map(\.buttonLabel), ["Allow Microphone", "Allow Accessibility", "Allow Input Monitoring"],
+            "what VoiceOver says: each button names its permission")
+        XCTAssertEqual(
             rows.map(\.reason),
             [
                 "To hear “Hey Jarvis”, your commands and your dictation.",
@@ -166,6 +169,13 @@ final class HomePageTests: XCTestCase {
             HomeModel.permissionRows(checks, key: "Fn", dictationKeyOn: true, asked: [.accessibility, .inputMonitoring])
                 .map(\.button),
             ["Open System Settings", "Open System Settings", "Open System Settings"])
+        let asked = HomeModel.permissionRows(checks, key: "Fn", dictationKeyOn: true, asked: [.accessibility])
+        XCTAssertEqual(
+            asked.map(\.buttonLabel),
+            [
+                "Open System Settings for Microphone", "Open System Settings for Accessibility",
+                "Allow Input Monitoring",
+            ])
         XCTAssertEqual(
             HomeModel.permissionRows(checks, key: "Fn", dictationKeyOn: false).map(\.name),
             ["Microphone", "Accessibility"], "Input Monitoring is only for the dictation key")

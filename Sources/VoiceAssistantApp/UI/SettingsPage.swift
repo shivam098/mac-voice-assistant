@@ -218,7 +218,8 @@ public final class SettingsModel: ObservableObject {
     }
 
     /// "Open settings file": settings.json in TextEdit, written first from the settings read at launch when there's no
-    /// file.
+    /// file. TextEdit follows System Settings › Keyboard, whose smart quotes would break the JSON: the line under the
+    /// buttons says how to switch them off there.
     public func openSettingsFile() {
         let path = paths.settingsFile
         if !FileManager.default.fileExists(atPath: path) {
@@ -226,7 +227,13 @@ public final class SettingsModel: ObservableObject {
         }
 
         opener.openText(URL(fileURLWithPath: path))
+        show(Self.textEditQuotes, Theme.muted)
     }
+
+    /// What the line under the buttons says once settings.json is open in TextEdit.
+    static let textEditQuotes =
+        "settings.json is open in TextEdit. Before typing quotes there, turn off Edit › Substitutions › Smart Quotes: "
+        + "the file needs straight ones."
 
     /// "Open logs folder", made first if it isn't there.
     public func openLogsFolder() {
@@ -259,6 +266,13 @@ public final class SettingsModel: ObservableObject {
 
     /// How text is inserted.
     nonisolated static let insertMethods = ["Paste", "Type"]
+
+    /// Under the hotkeys: how settings.json writes the Mac's keys, and that Windows' three default chords, which a
+    /// settings.json copied from Windows holds, mean the Mac's defaults (`AppSettings.macHotkey`), Alt or not.
+    nonisolated static let hotkeyHint =
+        "Written as in settings.json: Ctrl+Shift+Space is ⌃⇧Space; Alt is ⌥ Option and Win is ⌘ Command. Windows' "
+        + "defaults, as in a settings.json copied from Windows (Ctrl+Alt+Space, Alt+Shift+Z, Alt+Shift+H), mean the "
+        + "Mac's: ⌃⇧Space, ⌃⇧Z and ⌃⇧H."
 
     /// Every field, in the page's order, from `settings`, with labels that name the dictation key `key`.
     nonisolated static func fields(_ settings: AppSettings, key: String) -> [Field] {
@@ -332,8 +346,7 @@ public final class SettingsModel: ObservableObject {
         fields.append(
             text(
                 "dictationLanguageHotkey", "Switch dictation language hotkey", \.dictationLanguageHotkey, settings,
-                hint: "Written as in settings.json: Ctrl+Shift+Space is ⌃⇧Space; Alt is ⌥ Option and Win is ⌘ "
-                    + "Command."))
+                hint: hotkeyHint))
 
         fields.append(
             check(
@@ -481,7 +494,9 @@ public struct BrainCard: Equatable, Sendable {
                 ? "It couldn't start. Open logs folder for details; it tries again when you next ask." : reason
             card.isError = !reason.isEmpty
         case .unavailable(let reason):
+            // Nothing is ever downloaded on this Mac: no folder to open (opening it would make an empty one).
             card.text = reason
+            card.showsFolder = false
         }
 
         return card
@@ -622,7 +637,8 @@ struct SettingsContent: View {
 }
 
 /// A field's control: a check box, or its label above a box, a menu or a text area, with its hint below (Windows'
-/// `Field`).
+/// `Field`). Each control has the field's label as its name for VoiceOver, and the boxes keep what's typed as it's
+/// typed: macOS's corrections and substitutions are off in them.
 struct SettingsFieldView: View {
     @Binding var field: SettingsModel.Field
 
@@ -634,12 +650,12 @@ struct SettingsFieldView: View {
             }
             .toggleStyle(.checkbox)
         case .number:
-            labelled(TextField("", text: $field.text).textFieldStyle(.roundedBorder).frame(width: 100))
+            labelled(box(width: 100))
         case .text:
-            labelled(TextField("", text: $field.text).textFieldStyle(.roundedBorder).frame(width: 220))
+            labelled(box(width: 220))
         case .choice(let options):
             labelled(
-                Picker("", selection: $field.text) {
+                Picker(field.label, selection: $field.text) {
                     ForEach(options, id: \.self) { (option: String) in
                         Text(verbatim: option).tag(option)
                     }
@@ -649,12 +665,20 @@ struct SettingsFieldView: View {
                 .frame(width: 160, alignment: .leading))
         case .lines:
             labelled(
-                TextEditor(text: $field.text)
-                    .font(.system(size: 13))
+                PlainTextBox(text: $field.text, label: field.label)
                     .padding(4)
                     .frame(width: 460, height: Self.height(field.text))
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(Theme.border), lineWidth: 1)))
         }
+    }
+
+    /// A one-line box `width` wide, named for VoiceOver by the label above it (which isn't its placeholder).
+    private func box(width: CGFloat) -> some View {
+        TextField("", text: $field.text)
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+            .accessibilityLabel(Text(verbatim: field.label))
+            .frame(width: width)
     }
 
     /// A check box's field holds "True" or "False", as C# writes a bool.

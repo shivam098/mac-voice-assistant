@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Fades a view in when it appears, rising `rise` points as it does (Windows' `Motion.FadeIn`): the fade takes
@@ -101,5 +102,77 @@ struct WrapStack: Layout {
         }
 
         return rows
+    }
+}
+
+/// A text area for settings that are typed in later exactly as they're written here (Settings' lists and pairs):
+/// plain text, with none of the corrections and substitutions macOS makes as you type when System Settings › Keyboard
+/// has them on, as SwiftUI's `TextEditor` does (smart quotes and dashes, text replacements, spelling corrections), and
+/// no spelling underlines, as Windows' boxes. VoiceOver calls it `label`.
+struct PlainTextBox: NSViewRepresentable {
+    @Binding var text: String
+    let label: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        if let box = scroll.documentView as? NSTextView {
+            Self.configure(box)
+            box.string = text
+            box.delegate = context.coordinator
+        }
+
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        guard let box = scroll.documentView as? NSTextView else { return }
+        box.setAccessibilityLabel(label)
+        if box.string != text {
+            box.string = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    /// Plain 13-point text in the theme's colour on the card, kept as typed.
+    static func configure(_ box: NSTextView) {
+        box.isRichText = false
+        box.importsGraphics = false
+        box.allowsUndo = true
+        box.isAutomaticQuoteSubstitutionEnabled = false
+        box.isAutomaticDashSubstitutionEnabled = false
+        box.isAutomaticTextReplacementEnabled = false
+        box.isAutomaticSpellingCorrectionEnabled = false
+        box.isAutomaticTextCompletionEnabled = false
+        box.isAutomaticLinkDetectionEnabled = false
+        box.isAutomaticDataDetectionEnabled = false
+        box.smartInsertDeleteEnabled = false
+        box.isContinuousSpellCheckingEnabled = false
+        box.isGrammarCheckingEnabled = false
+        box.font = NSFont.systemFont(ofSize: 13)
+        box.textColor = NSColor(Color(Theme.text))
+        box.drawsBackground = false
+    }
+
+    /// Gives what's typed to the binding.
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let box = notification.object as? NSTextView else { return }
+            text.wrappedValue = box.string
+        }
     }
 }
