@@ -16,7 +16,7 @@
 #   AppleScript opens. The tabs are opened with AppleScript, and the app lists them with AppleScript, so whatever starts
 #   the lab needs the Automation permission for Safari (Terminal asks for it the first time).
 # The results folder (by default $TMPDIR/voice-assistant-self-test/nav-lab-<browser>) gets the output (output.txt) and
-# the app's log files written during the run. Exits as scripts/self-test.sh does.
+# the app's log files written during the run (and Safari's web server's log). Exits as scripts/self-test.sh does.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"

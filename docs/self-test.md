@@ -159,7 +159,7 @@ Each run's expected lines (`nav-lab.chrome.expected.txt`, `nav-lab.safari.expect
 the numbers offered (N3, N8, N9) and the click that waits for "yes" (N5), and the three typed texts by their length and
 hash. The results folder (by default `$TMPDIR/voice-assistant-self-test/nav-lab-<browser>`) gets `output.txt`, the
 script under the browser's name (`nav-lab-chrome.selftest.txt`, so the run's last line and the job's summary say which
-browser it was) and the app's log files written during the run.
+browser it was), the app's log files written during the run and, for Safari, the web server's log (`server.log`).
 
 A new lab:
 
