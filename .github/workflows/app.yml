@@ -1,7 +1,7 @@
 name: App
 
 # Voice Assistant.app, universal and signed ad hoc, in a .dmg to test on a Mac (scripts/make-app.sh). The .dmg is this
-# run's artifact.
+# run's artifact. The Release workflow (release.yml) builds a release's .dmg with it too.
 on:
   push:
     branches: [main]
@@ -19,9 +19,18 @@ on:
       - "Package.swift"
       - ".github/workflows/app.yml"
   workflow_dispatch:
+  # The Release workflow (release.yml) builds with it, at the version it releases.
+  workflow_call:
+    inputs:
+      version:
+        description: The version, such as 0.1.0 (empty for scripts/make-app.sh's, the latest v* tag's, else 0.1.0)
+        type: string
+        default: ""
 
+# When the Release workflow calls it, github.workflow is "Release", so a release's build and the App runs of the same
+# branch never cancel each other.
 concurrency:
-  group: app-${{ github.ref }}
+  group: app-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,15 +47,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Xcode 16.4 whatever the runner's default becomes, so a change there can't silently change a release's toolchain
+      # (the release notes name it).
+      - name: Select Xcode 16.4
+        run: |
+          xcode=/Applications/Xcode_16.4.app
+          if [[ ! -d "$xcode" ]]; then
+            installed=(/Applications/Xcode*.app)
+            echo "::error::$xcode isn't on this runner. It has: ${installed[*]}" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          selected="$(xcodebuild -version)"
+          if [[ "${selected%%$'\n'*}" != "Xcode 16.4" ]]; then
+            echo "::error::$xcode is ${selected%%$'\n'*}, not Xcode 16.4" >&2
+            exit 1
+          fi
+
       - name: Tools
         run: |
           sw_vers
           xcodebuild -version
           swift --version
 
-      # thumbfree-mac at the tip of its main, as the Mac workflow builds it.
+      # thumbfree-mac as Package.swift says: its main, as the Mac workflow builds it, until a release pins a commit.
       - name: Build the app and the disk image
-        run: ./scripts/make-app.sh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: ./scripts/make-app.sh "$VERSION"
 
       - uses: actions/upload-artifact@v7
         with:

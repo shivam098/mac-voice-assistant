@@ -1,0 +1,176 @@
+name: Release
+
+# Publishes a test build of Voice Assistant (Jarvis for Mac) as the GitHub pre-release v<version>: the .dmg the App
+# workflow (app.yml) builds, VoiceAssistant-<version>.dmg, with its SHA256SUMS, and docs/release-notes/v<version>.md as
+# the notes. Run it by hand from main: Actions › Release › Run workflow. It's a dry run unless you untick "Dry run": the
+# same build, checksums and notes, kept as the run's artifact (VoiceAssistant-<version>-release), with no tag and no
+# release.
+#
+# scripts/check-release.sh says whether it may go ahead: the version must be the app's (VoiceAssistantCore.version) and
+# have its notes, and a real run must also be started on main, with Package.swift pinning thumbfree-mac to a commit so
+# the release can be built again; a tag or a release that exists is never replaced. Releases are pre-releases, signed
+# ad hoc, until the app is signed with a Developer ID and notarized (docs/design.md, phase 6). The App workflow builds
+# them with Xcode 16.4.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, such as 0.1.0 (the app's VoiceAssistantCore.version)
+        required: true
+        type: string
+      dry_run:
+        description: Dry run (keep the files as the run's artifact; no tag, no release)
+        required: true
+        type: boolean
+        default: true
+
+# One run at a time, and none cancelled.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check the version, the notes and the dependency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      dry_run: ${{ steps.check.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          scripts/check-release.sh "$VERSION" "$DRY_RUN"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: check
+    uses: ./.github/workflows/app.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+
+  files:
+    name: The .dmg, SHA256SUMS and the notes
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      DRY_RUN: ${{ needs.check.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: VoiceAssistant-dmg
+          path: release
+
+      # SHA256SUMS in the format `shasum -a 256 -c SHA256SUMS` reads on a Mac.
+      - name: SHA256SUMS and the notes
+        run: |
+          dmg="VoiceAssistant-$VERSION.dmg"
+          built="$(ls release)"
+          if [[ "$built" != "$dmg" ]]; then
+            echo "::error::Expected $dmg from the build, not: $built" >&2
+            exit 1
+          fi
+          cp "docs/release-notes/v$VERSION.md" release/
+          cd release
+          sha256sum "$dmg" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          ls -l
+          {
+            echo "## Voice Assistant $VERSION"
+            echo
+            echo "Commit \`$GITHUB_SHA\`."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+            echo
+            echo "$dmg: $(stat -c %s "$dmg") bytes."
+            echo
+            if [[ "$DRY_RUN" == true ]]; then
+              echo "A dry run: nothing is published. The .dmg, SHA256SUMS and the notes are this run's artifact," \
+                "VoiceAssistant-$VERSION-release."
+            else
+              echo "Next: the pre-release v$VERSION."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VoiceAssistant-${{ needs.check.outputs.version }}-release
+          path: release/
+          if-no-files-found: error
+
+  release:
+    name: Publish the pre-release
+    needs: [check, files]
+    if: needs.check.outputs.dry_run == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only this job may write: it creates the tag and the release.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: VoiceAssistant-${{ needs.check.outputs.version }}-release
+          path: release
+
+      # Again just before publishing, with this job's token, which also sees draft releases.
+      - name: Check again
+        run: scripts/check-release.sh "$VERSION" false
+
+      # The tag is made on this run's commit, the one that was built.
+      - name: Publish
+        run: |
+          (cd release && sha256sum -c SHA256SUMS)
+          gh release create "v$VERSION" "release/VoiceAssistant-$VERSION.dmg" release/SHA256SUMS \
+            --target "$GITHUB_SHA" --prerelease --title "Voice Assistant for Mac v$VERSION (test build)" \
+            --notes-file "release/v$VERSION.md"
+
+      # What's published is what was built: a pre-release, not a draft, with the two files, and its tag on this commit.
+      - name: Check what's published
+        run: |
+          tag="v$VERSION"
+          gh release view "$tag" --json isDraft,isPrerelease,assets,url > published.json
+          jq -e '.isPrerelease and (.isDraft | not)' published.json
+          assets="$(jq -r '.assets[].name' published.json | sort | tr '\n' ' ')"
+          if [[ "$assets" != "SHA256SUMS VoiceAssistant-$VERSION.dmg " ]]; then
+            echo "::error::The release has these files: $assets" >&2
+            exit 1
+          fi
+          git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag"
+          if [[ "$(git rev-parse "$tag^{commit}")" != "$GITHUB_SHA" ]]; then
+            echo "::error::$tag isn't on $GITHUB_SHA" >&2
+            exit 1
+          fi
+          gh release download "$tag" --dir published
+          (cd published && sha256sum -c SHA256SUMS)
+          cmp published/SHA256SUMS release/SHA256SUMS
+          echo "Published: $(jq -r .url published.json)" >> "$GITHUB_STEP_SUMMARY"

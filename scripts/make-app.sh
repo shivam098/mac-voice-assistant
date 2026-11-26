@@ -44,8 +44,17 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== Building $name $version for arm64 and x86_64"
-swift build -c release --arch arm64 --arch x86_64 --product "$executable"
-binary="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$executable"
+# Multi-architecture builds use Xcode's build system, which can lose binary-target library search paths (on Xcode 26.6,
+# "library not found for -lCSherpaOnnx": thumbfree-mac #14). So each architecture is built with SwiftPM's own build
+# system, and lipo joins them: the same fix as thumbfree-mac #15.
+for arch in arm64 x86_64; do
+  swift build --build-system native -c release --arch "$arch" --product "$executable"
+done
+binary="$work/$executable"
+lipo -create \
+  "$(swift build --build-system native -c release --arch arm64 --show-bin-path)/$executable" \
+  "$(swift build --build-system native -c release --arch x86_64 --show-bin-path)/$executable" \
+  -output "$binary"
 lipo "$binary" -verify_arch arm64 x86_64
 echo "Architectures: $(lipo -archs "$binary")"
 
