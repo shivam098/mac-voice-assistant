@@ -3,9 +3,9 @@
 Talk to your Mac: dictate into any app, control apps hands-free with **"Hey Jarvis"**, keep ideas, to-dos and
 reminders on a voice **idea board**, and ask an AI brain that runs on your Mac for anything else.
 
-**Status: in development.** There's nothing to install yet. This is the Mac version of
-[Windows Voice Assistant](https://github.com/shivam098/windows-voice-assistant); the design and the plan are in
-[docs/design.md](docs/design.md).
+**Status: in development.** Test builds come as pre-releases: see [Install a test build](#install-a-test-build). This is
+the Mac version of [Windows Voice Assistant](https://github.com/shivam098/windows-voice-assistant); the design and the
+plan are in [docs/design.md](docs/design.md).
 
 Everything will run **on your Mac**: speech is recognised locally and the AI model runs on the Mac's graphics chip.
 Nothing you say is uploaded, and there's no account.
@@ -31,6 +31,19 @@ Windows uses Ctrl).
 ThumbFree for Mac is the dictation-only app: no wake word, and the microphone is on only while you dictate. Both apps
 use the same dictation engine and the same key, Fn, so run one at a time; each one tells you if the other is running.
 
+## Install a test build
+
+Test builds are for trying Jarvis on a Mac before it's finished, and saying what breaks. They're for macOS 13 or later,
+on Apple silicon and Intel Macs; the AI brain needs Apple silicon and macOS 13.3 or later.
+
+1. From the latest pre-release on the [Releases](https://github.com/shivam098/mac-voice-assistant/releases) page,
+   download `VoiceAssistant-<version>.dmg` and `SHA256SUMS`, and check the download: `shasum -a 256 -c SHA256SUMS`.
+2. Open the `.dmg` and drag Voice Assistant to Applications. Test builds are signed ad hoc, not by Apple, so the first
+   time, open it, then choose System Settings › Privacy & Security › **Open Anyway**.
+3. Give it the microphone and Accessibility. The first run downloads the speech models (about 265 MB).
+
+[docs/testing.md](docs/testing.md) has each step, the checklist to test it with, and how to report a problem.
+
 ## Develop
 
 A Swift package for macOS 13 or later. GitHub's macOS runners build and test it on every change, and daily against the
@@ -40,6 +53,12 @@ newest thumbfree-mac:
 swift build
 swift test
 ```
+
+Releases are built by CI. The Release workflow, run by hand on `main`, builds the app as the App workflow does (below)
+and publishes `VoiceAssistant-<version>.dmg` and `SHA256SUMS`, with `docs/release-notes/v<version>.md` as the notes, as
+the pre-release `v<version>`. By default it's a dry run, which keeps the files as the run's artifact instead.
+`scripts/check-release.sh` refuses a version that isn't the app's (`VoiceAssistantCore.version`), and a real release
+unless `Package.swift` pins thumbfree-mac to a commit; a tag or a release that exists is never replaced.
 
 `scripts/make-app.sh` builds `Voice Assistant.app` (Apple silicon and Intel, signed ad hoc) and
 `VoiceAssistant-<version>.dmg` in `dist/`. The App workflow runs it for every pull request and every change to `main`

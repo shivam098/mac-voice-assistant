@@ -163,8 +163,7 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
 
 **Once the whole app is out** (v0.1.0, or the App workflow's .dmg after the wiring PR has merged):
 
-3. **docs/testing.md's checklist**, top to bottom. It's being written in the release-preparation PR. Until it's on
-   main, check at least the following:
+3. **[docs/testing.md](testing.md)'s checklist**, top to bottom. It includes at least the following:
    - the menu bar item, its menu and the status pill;
    - "Hey Jarvis, open Notes", "start typing", a dictation, then "send";
    - Fn dictation with its live preview, and Esc to cancel;

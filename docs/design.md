@@ -119,7 +119,7 @@ guide explains each one, like ThumbFree's.
 - **A real Mac:** the navigation acceptance tests
   ([acceptance-tests.md](https://github.com/shivam098/windows-voice-assistant/blob/main/docs/specs/acceptance-tests.md)
   N1–N9) with the same `tests/NavigationLab` pages in Chrome and Safari, plus a checklist for the microphone, the
-  permissions, the wake word, Fn and the brain.
+  permissions, the wake word, Fn and the brain: [testing.md](testing.md), which also says how to install a test build.
 
 ## Phases
 
