@@ -9,17 +9,20 @@ import VoiceAssistantCore
 @MainActor
 public final class WindowModel: ObservableObject {
     @Published public private(set) var page = AppPage.home
-    /// The list "show my reminders" opened the board at, for the board to highlight; nil for the whole board.
+    /// The list "show my reminders" opened the board at, which the board lights up; nil for the whole board.
     @Published public private(set) var boardList: BoardList?
 
     public let home: HomeModel
     public let settings: SettingsModel
     public let help: HelpModel
+    /// The idea board's page; nil without a board.
+    public let board: BoardModel?
 
-    public init(home: HomeModel, settings: SettingsModel, help: HelpModel) {
+    public init(home: HomeModel, settings: SettingsModel, help: HelpModel, board: BoardModel? = nil) {
         self.home = home
         self.settings = settings
         self.help = help
+        self.board = board
     }
 
     /// Opens `page`, as its button in the sidebar does (Windows' `ShowPage`): the board opens whole.
@@ -28,17 +31,21 @@ public final class WindowModel: ObservableObject {
         self.page = page
     }
 
-    /// Opens the board, highlighting `list` (Windows' `ShowBoard`).
+    /// Opens the board, lighting up `list` for a moment (Windows' `ShowBoard`).
     public func showBoard(_ list: BoardList?) {
         boardList = list
         page = .ideas
+        if let list {
+            board?.highlight(list)
+        }
     }
 
     /// Reads again what may have changed while the window was away, as it shows or comes forward: what macOS allows,
-    /// which reminders are due, "Start when I log in" and the AI brain.
+    /// which reminders are due (on Home and the board), "Start when I log in" and the AI brain.
     public func refresh() {
         home.refreshPermissions()
         home.refreshReminders()
+        board?.refresh()
         settings.refresh()
     }
 }
@@ -68,13 +75,13 @@ public final class MainWindow: NSObject, NSWindowDelegate {
     /// - Parameters:
     ///   - settings: The settings as read at launch.
     ///   - paths: Where settings.json and the logs are.
-    ///   - board: The idea board: Home's "Coming up" (and the board's page).
+    ///   - board: The idea board: its page, and Home's "Coming up".
     ///   - assistant: The assistant host.
     ///   - brain: The AI brain; nil while it's switched off.
     ///   - keys: The keys the texts name.
     ///   - startAtLogin: "Start when I log in".
     ///   - restart: Starts a fresh copy of the app, with its window open when `windowVisible` ("Save and restart").
-    ///   - notice: Says something by the menu bar icon (Windows' tray balloon).
+    ///   - notice: Says something by the menu bar icon (Windows' tray balloon), as when the board can't save a change.
     ///   - permissions: What macOS allows, for Home's "Permissions needed".
     ///   - opener: Finder, TextEdit and System Settings.
     public init(
@@ -86,6 +93,9 @@ public final class MainWindow: NSObject, NSWindowDelegate {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+        let ideas: BoardModel? = board.map { (store: BoardStore) -> BoardModel in
+            BoardModel(board: store, keys: keys, report: notice)
+        }
         let model = WindowModel(
             home: HomeModel(
                 assistant: assistant, board: board, keys: keys, permissions: permissions,
@@ -94,7 +104,7 @@ public final class MainWindow: NSObject, NSWindowDelegate {
                 settings: settings, paths: paths, assistant: assistant, brain: brain, keys: keys,
                 startAtLogin: startAtLogin, restart: { [weak window] in restart(window?.isVisible ?? false) },
                 opener: opener),
-            help: HelpModel(keys: keys))
+            help: HelpModel(keys: keys), board: ideas)
         let content = NSHostingView(rootView: MainWindowView(model: model))
         content.sizingOptions = [.minSize]
         self.model = model
@@ -280,7 +290,11 @@ struct MainWindowView: View {
         case .home:
             HomePage(model: model.home).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .ideas:
-            IdeasPlaceholderPage().modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
+            if let board = model.board {
+                IdeasPage(model: board).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
+            } else {
+                IdeasPlaceholderPage().modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
+            }
         case .settings:
             SettingsPage(model: model.settings).modifier(FadeInOnAppear(milliseconds: 180, rise: 10))
         case .help:
@@ -354,9 +368,9 @@ struct Sidebar: View {
     }
 }
 
-/// The idea board's place until the board comes (UI part 3).
+/// The idea board's place in a window without a board (the app always has one: it doesn't start without board.json).
 struct IdeasPlaceholderPage: View {
-    static let text = "The board comes in the next update. Meanwhile, Home shows what's coming up."
+    static let text = "The idea board isn't open."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

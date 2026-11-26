@@ -163,7 +163,8 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   typed, and the pill says so.
 - [ ] **"Hey Jarvis, add renew passport to my to-do list", and "Hey Jarvis, note down that the demo needs
   subtitles".** The first is on the To-do list, the second in Ideas.
-- [ ] **"Hey Jarvis, show my ideas", and "show my reminders".** The window opens on the board.
+- [ ] **"Hey Jarvis, show my ideas", and "show my reminders".** The window opens on the board, and that list's outline
+  lights up for a moment.
 - [ ] **"Hey Jarvis, remind me to stretch in 2 minutes".** Two minutes later a card appears in the bottom-right corner,
   with a sound: Done, Snooze 10 min and Open board. It doesn't take the keyboard from the app you're in. Done ticks
   the reminder off, Snooze brings it back 10 minutes later, and Open board opens the board.
@@ -172,7 +173,8 @@ the dictation engine in much more depth (microphones, keyboard layouts, the clip
   starts.
 - [ ] **"Hey Jarvis, mark renew passport as done".** It's ticked off.
 - [ ] **On the window's Idea board:** type a note in a list's box (Return adds it), tick it, drag it to another place or
-  another list, double-click to edit it, and right-click to move, snooze or delete it. Everything is still there after
+  another list (a line shows where it will land), double-click to edit it (Return saves, Esc doesn't), and right-click
+  to move, snooze or delete it. Dragging a note onto another app does nothing. Everything is still there after
   quitting and opening Voice Assistant again.
 
 ### Navigation by name and by numbers, in Safari and Chrome

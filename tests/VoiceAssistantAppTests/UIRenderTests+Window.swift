@@ -49,9 +49,9 @@ extension UIRenderTests {
             Renderer.render(
                 HomeContent(model: home).frame(width: 950).background(Color(Theme.background)), "home-full-page")
 
-            let ideas = Self.model(other)
+            let ideas = Self.model(other, board: other.ideas(full))
             ideas.showBoard(.reminders)
-            Renderer.render(Self.window(ideas), "window-3-idea-board-placeholder")
+            Renderer.render(Self.window(ideas), "window-3-idea-board-show-my-reminders")
         }
     }
 
@@ -122,7 +122,7 @@ extension UIRenderTests {
 
     /// Runs `body` with Reduce motion on.
     @MainActor
-    private static func withoutMotion(_ body: () throws -> Void) rethrows {
+    static func withoutMotion(_ body: () throws -> Void) rethrows {
         let reduceMotion = Motion.reduceMotion
         defer { Motion.reduceMotion = reduceMotion }
         Motion.reduceMotion = { true }
@@ -131,16 +131,17 @@ extension UIRenderTests {
 
     @MainActor
     private static func model(
-        _ rig: PageRig, home: HomeModel? = nil, settings: SettingsModel? = nil, keys: KeyNames = KeyNames()
+        _ rig: PageRig, home: HomeModel? = nil, settings: SettingsModel? = nil, keys: KeyNames = KeyNames(),
+        board: BoardModel? = nil
     ) -> WindowModel {
         WindowModel(
             home: home ?? rig.home(board: nil, keys: keys), settings: settings ?? rig.settings(keys: keys),
-            help: HelpModel(keys: keys))
+            help: HelpModel(keys: keys), board: board)
     }
 
     /// The window's contents at its size when it opens.
     @MainActor
-    private static func window(_ model: WindowModel) -> some View {
+    static func window(_ model: WindowModel) -> some View {
         MainWindowView(model: model).frame(width: MainWindow.size.width, height: MainWindow.size.height)
     }
 
