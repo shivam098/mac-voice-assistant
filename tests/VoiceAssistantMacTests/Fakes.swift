@@ -375,6 +375,9 @@ final class FakeWorkspace: WorkspaceSystem {
     /// The window server's windows, by number.
     var serverWindows: [Int: ServerWindow] = [:]
 
+    /// The windows in `windowOrder` that `serverWindows` has.
+    func serverWindowsFrontToBack() -> [ServerWindow] { windowOrder.compactMap { serverWindows[$0] } }
+
     func serverWindow(_ number: Int) -> ServerWindow? { serverWindows[number] }
 
     /// The processes of apps built with Electron.

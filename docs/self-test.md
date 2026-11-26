@@ -150,11 +150,12 @@ tests/NavigationLab/run.sh .build/release/VoiceAssistant safari [<results folder
 
 - **chrome:** Google Chrome with a temporary profile, a process of its own whatever else Chrome has open (as Windows'
   NavigationLab starts it), the pages as files. It quits afterwards and the profile is deleted.
-- **safari:** Safari mustn't be running. Afterwards the lab closes its window and quits it through AppleScript, so it
-  doesn't open the lab's tabs again next time (a Safari that doesn't quit within 5 s is stopped). The pages come from
-  a web server the lab starts on this Mac, python3's on 127.0.0.1 only, and stops afterwards: Safari asks before it
-  shows a file that AppleScript opens. The lab opens the tabs with AppleScript and the app lists them with AppleScript,
-  so whatever starts the lab needs the Automation permission for Safari: Terminal asks for it the first time.
+- **safari:** Safari mustn't be running. Afterwards the lab closes its own window, by its id, and quits Safari through
+  AppleScript, so it doesn't open the lab's tabs again next time; windows of Safari's last session that it opened stay
+  (a Safari that doesn't quit within 5 s is stopped). The pages come from a web server the lab starts on this Mac,
+  python3's on 127.0.0.1 only, and stops afterwards: Safari asks before it shows a file that AppleScript opens. The
+  lab opens the tabs with AppleScript and the app lists them with AppleScript, so whatever starts the lab needs the
+  Automation permission for Safari: Terminal asks for it the first time.
 
 Each run's expected lines (`nav-lab.chrome.expected.txt`, `nav-lab.safari.expected.txt`) pin the browser in front,
 the numbers offered (N3, N8, N9) and the click that waits for "yes" (N5), the Search box empty before typing (N7: the

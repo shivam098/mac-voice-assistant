@@ -25,10 +25,13 @@ extension MacDesktop {
     /// those: a Mac app's only window can have none, and the brain also knows a window by its app's name.
     ///
     /// Off the caller's thread with the scans' 4-second limit (Windows' list doesn't wait on apps, so it has none). It
-    /// asks for windows for 1.5 s and describes them, front-most first, until 3 s (`windowSearchTime`,
-    /// `windowListTime`); an app that doesn't answer isn't asked again, and a window that isn't reached by then isn't
-    /// listed. The window taking the keys is asked for last. Should the limit pass all the same (an app in front that
-    /// doesn't answer), the windows described by then are the list.
+    /// asks the apps for their windows for 1.5 s, the app in front first, then the others in the order of their
+    /// front-most window on screen (`searchOrder`), so what's cut when time runs out is at the back, as Windows cuts
+    /// its list in that order. It describes the windows found, front-most first, until 3 s (`windowSearchTime`,
+    /// `windowListTime`); an app that doesn't answer isn't asked again, and a window not described by then is listed
+    /// with what's known: its app, its number and title, no frame. The window taking the keys is asked for last.
+    /// Should the limit pass all the same (an app in front that doesn't answer), the windows found by then are the
+    /// list.
     public func listWindows() async throws -> [DesktopWindow] {
         let screens = await workspace.screens()
         let listed = Background.Answer<[DesktopWindow]>()
@@ -51,32 +54,44 @@ extension MacDesktop {
         let start = clock.now()
         let searchEnd = start + Self.windowSearchTime
         let listEnd = start + Self.windowListTime
-        let front = workspace.frontmostApp()?.processIdentifier
         var found: [AppWindow] = []
         var hidden: Set<Int> = []
-        for process in workspace.runningApps() where process.processIdentifier != ownProcess {
-            guard process.isRegular || process.processIdentifier == front else { continue }
+        var unanswered: Set<Int> = []
+        for process in searchOrder(workspace.serverWindowsFrontToBack()) {
             if token.isCancelled || clock.now() > searchEnd {
                 break
             }
 
-            let processWindows = windows(of: process) { token.isCancelled || self.clock.now() > searchEnd }
-            if !processWindows.isEmpty, isHidden(process.processIdentifier) {
-                hidden.insert(Int(process.processIdentifier))
+            let pid = Int(process.processIdentifier)
+            let search = searchWindows(of: process) { token.isCancelled || self.clock.now() > searchEnd }
+            if search.hidden == true {
+                hidden.insert(pid)
+            } else if search.answered, search.hidden == nil, !search.windows.isEmpty,
+                      isHidden(process.processIdentifier) {
+                hidden.insert(pid)
             }
 
-            found += processWindows
+            if !search.answered {
+                unanswered.insert(pid)
+            }
+
+            found += search.windows
         }
 
-        var described: [DesktopWindow] = []
-        var unanswered: Set<Int> = []
-        for window in frontToBack(found).prefix(Self.maxListedWindows) {
+        let ordered = Array(frontToBack(found).prefix(Self.maxListedWindows))
+        var described: [DesktopWindow] = ordered.map { (window: AppWindow) -> DesktopWindow in
+            Self.known(window, hidden: hidden.contains(window.info.processId))
+        }
+        listed.set(described)
+        var reached = 0
+        for window in ordered {
             if token.isCancelled || clock.now() > listEnd {
                 break
             }
 
             let pid = window.info.processId
-            described.append(describe(window, hidden: hidden.contains(pid), &unanswered, screens))
+            described[reached] = describe(window, hidden: hidden.contains(pid), &unanswered, screens)
+            reached += 1
             listed.set(described)
         }
 
@@ -85,24 +100,51 @@ extension MacDesktop {
             described.insert(described.remove(at: index), at: 0)
         }
 
-        log("window list: \(described.count) windows, \(milliseconds(since: start)) ms")
+        let notDescribed = described.count - reached
+        let note = notDescribed > 0 ? " (\(notDescribed) not described)" : ""
+        log("window list: \(described.count) windows\(note), \(milliseconds(since: start)) ms")
         return described
+    }
+
+    /// The apps to ask for their windows: those in the Dock, and the app in front when it isn't one, never this app.
+    /// The app in front first, then the others in the order of their front-most window on screen (`onScreen`, the
+    /// window server's, front-most first), then the apps with no window on screen, as they run.
+    func searchOrder(_ onScreen: [ServerWindow]) -> [RunningApp] {
+        let front = workspace.frontmostApp()?.processIdentifier
+        var rank: [pid_t: Int] = [:]
+        for (index, window) in onScreen.enumerated() where rank[window.owner] == nil {
+            rank[window.owner] = index
+        }
+
+        if let front {
+            rank[front] = -1
+        }
+
+        let apps = workspace.runningApps().filter { (app: RunningApp) -> Bool in
+            app.processIdentifier != ownProcess && (app.isRegular || app.processIdentifier == front)
+        }
+        return DotNet.orderBy(apps) { rank[$0.processIdentifier] ?? Int.max }
+    }
+
+    /// A window as it's known without asking its app: minimized when its app is hidden, else normal; no frame.
+    static func known(_ window: AppWindow, hidden: Bool) -> DesktopWindow {
+        DesktopWindow(window: window.info, show: hidden ? .minimized : .normal)
     }
 
     /// C#'s `Describe`: minimized (also when its app is hidden: nothing of it shows), maximized in full screen, else
     /// normal (the core calls a window that fills its screen's usable part maximized, as zooming makes it); its frame,
     /// and the usable part of the screen it's on (`screen(of:)`). An app that doesn't answer goes in `unanswered`, and
-    /// its windows are described by what's known without asking it: no frame, and minimized only when it's hidden.
+    /// its windows are described by what's known without asking it (`known`).
     func describe(
         _ window: AppWindow, hidden: Bool, _ unanswered: inout Set<Int>, _ screens: [ScreenArea]
     ) -> DesktopWindow {
         let pid = window.info.processId
-        var show: WindowShow = hidden ? .minimized : .normal
         if unanswered.contains(pid) {
-            return DesktopWindow(window: window.info, show: show)
+            return Self.known(window, hidden: hidden)
         }
 
         do {
+            var show: WindowShow = hidden ? .minimized : .normal
             if !hidden, try ax.number(kAXMinimizedAttribute, of: window.element) == 1 {
                 show = .minimized
             } else if !hidden, try ax.number(AXName.fullScreen, of: window.element) == 1 {
@@ -116,7 +158,7 @@ extension MacDesktop {
             return DesktopWindow(window: window.info, show: show, rect: rect, workArea: workArea)
         } catch {
             unanswered.insert(pid)
-            return DesktopWindow(window: window.info, show: show)
+            return Self.known(window, hidden: hidden)
         }
     }
 

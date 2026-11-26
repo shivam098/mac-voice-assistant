@@ -11,11 +11,12 @@
 # mail.html and chats.html, in that order) open in a new window of the browser:
 # - chrome: Google Chrome with a temporary profile, so a process of its own whatever else Chrome has open, as Windows'
 #   NavigationLab starts it; the pages are files. It quits when the lab is done, and the profile is deleted.
-# - safari: Safari, which mustn't be running: when it's done, the lab closes its window and quits it through
-#   AppleScript, so it doesn't open the lab's tabs again next time. The pages come from a web server on this Mac
-#   (python3's, on 127.0.0.1 only) that the lab starts and stops: Safari asks before it shows a file that AppleScript
-#   opens. The tabs are opened with AppleScript, and the app lists them with AppleScript, so whatever starts the lab
-#   needs the Automation permission for Safari (Terminal asks for it the first time).
+# - safari: Safari, which mustn't be running: when it's done, the lab closes its own window (by its id: Safari may have
+#   opened the windows of its last session too, which stay) and quits Safari through AppleScript, so it doesn't open
+#   the lab's tabs again next time. The pages come from a web server on this Mac (python3's, on 127.0.0.1 only) that
+#   the lab starts and stops: Safari asks before it shows a file that AppleScript opens. The tabs are opened with
+#   AppleScript, and the app lists them with AppleScript, so whatever starts the lab needs the Automation permission
+#   for Safari (Terminal asks for it the first time).
 # The results folder (by default $TMPDIR/voice-assistant-self-test/nav-lab-<browser>) gets the output (output.txt) and
 # the app's log files written during the run (and Safari's web server's log). Exits as scripts/self-test.sh does.
 set -euo pipefail
@@ -63,6 +64,7 @@ started="$results/.started"
 profile=""
 server=""
 safari_started=""
+safari_window=""
 
 # The app in front, by bundle identifier (Launch Services' own tool: no permission needed).
 front_app() {
@@ -91,11 +93,27 @@ finish() {
   fi
 
   if [[ -n "$safari_started" ]] && pgrep -x Safari >/dev/null; then
-    # The lab's Safari: the lab doesn't start while Safari runs, so a Safari the user had open is never touched. Its
-    # windows are closed and it quits through AppleScript, so it doesn't open the lab's tabs again next time. An
-    # AppleScript can wait on a dialog: it gets 5 s, and Safari is stopped as a process only if it still runs then.
-    osascript -e 'tell application id "com.apple.Safari"' -e 'close every window' -e 'quit' -e 'end tell' \
-      >/dev/null 2>&1 &
+    # The lab's Safari: the lab doesn't start while Safari runs, so a Safari the user had open is never touched. Only
+    # the lab's window is closed, by its id, then Safari quits through AppleScript: its next start doesn't open the
+    # lab's tabs, while the windows of its last session that it opened stay for next time. Without the id it quits
+    # without closing anything. An AppleScript can wait on a dialog: it gets 5 s, and Safari is stopped as a process
+    # only if it still runs then.
+    osascript - "$safari_window" >"$results/safari-quit.txt" 2>&1 <<'SCRIPT' &
+on run argv
+  set closed to "no window closed"
+  set lab to item 1 of argv
+  tell application id "com.apple.Safari"
+    if lab is not "" then
+      try
+        close window id (lab as integer)
+        set closed to "the lab's window closed"
+      end try
+    end if
+    quit
+  end tell
+  return closed
+end run
+SCRIPT
     quitter=$!
     disown "$quitter"
     for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -107,10 +125,12 @@ finish() {
     done
 
     kill "$quitter" 2>/dev/null || true
+    quit="$(tr -d '\n' <"$results/safari-quit.txt" 2>/dev/null || true)"
+    rm -f "$results/safari-quit.txt"
     if pgrep -x Safari >/dev/null; then
-      echo "Safari didn't quit within 5 s: stopping it"
+      echo "Safari didn't quit within 5 s ($quit): stopping it"
     else
-      echo "Safari closed the lab's window and quit"
+      echo "Safari quit: $quit"
     fi
 
     for pid in $(pgrep -x Safari || true); do
@@ -161,22 +181,29 @@ else
     exit 2
   fi
 
+  # The lab's window gets its tabs by its id, which is kept to close only that window afterwards: Safari may have
+  # opened the windows of its last session too.
   safari_started=1
-  osascript - "http://127.0.0.1:$port" <<'SCRIPT'
+  osascript - "http://127.0.0.1:$port" >"$results/safari-window.txt" <<'SCRIPT'
 on run argv
   set base to item 1 of argv
   tell application id "com.apple.Safari"
     activate
     make new document with properties {URL:base & "/videos.html"}
-    tell front window
+    set lab to id of front window
+    tell window id lab
       make new tab at end of tabs with properties {URL:base & "/lab.html"}
       make new tab at end of tabs with properties {URL:base & "/mail.html"}
       make new tab at end of tabs with properties {URL:base & "/chats.html"}
       set current tab to tab 1
     end tell
+    return lab
   end tell
 end run
 SCRIPT
+  safari_window="$(tr -cd '0-9' <"$results/safari-window.txt")"
+  rm -f "$results/safari-window.txt"
+  echo "the lab's Safari window: ${safari_window:-unknown}"
 fi
 
 # The browser in front with the pages loaded; the script's first check stops it if the lab's window isn't in front.

@@ -95,8 +95,10 @@ The porting guide's capability map is the plan. These are the points it leaves o
   windows count, and a hidden app's too, as minimized; so does a window without a title, which Windows skips (a Mac
   app's only window can have none). macOS calls a minimized window, and every window of a hidden app, a dialog, as it
   calls an alert, so in a hidden app only a window that can be minimized counts. The list waits on apps, which
-  Windows' doesn't: it asks them for 1.5 s and describes their windows until 3 s, inside the 4-second limit, and an
-  app that doesn't answer isn't asked again. Bringing a window to the front unhides its app and restores it first.
+  Windows' doesn't: it asks them for 1.5 s, the app in front first, then by their front-most window on screen, so time
+  running out cuts the back of the list, as Windows cuts it; it describes the windows until 3 s, inside the 4-second
+  limit, and lists any it didn't reach with what's known. An app that doesn't answer isn't asked again. Bringing a
+  window to the front unhides its app and restores it first.
 - **Where it never types:** password fields and secure input, as everywhere. The brain's no-go places become Terminal
   and other terminals, Spotlight and Finder; in a browser it types only inside the page (an `AXWebArea` ancestor),
   never into the address bar.

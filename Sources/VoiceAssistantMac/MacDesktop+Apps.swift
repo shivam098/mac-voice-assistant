@@ -183,10 +183,32 @@ extension MacDesktop {
     /// alert or an About panel hasn't. `stop` is asked before each window, and an app that doesn't answer isn't asked
     /// any more: the windows found until then.
     func windows(of process: RunningApp, until stop: () -> Bool = { false }) -> [AppWindow] {
-        let pid = process.processIdentifier
-        guard let windows = try? ax.elements(kAXWindowsAttribute, of: ax.application(pid)) else { return [] }
+        searchWindows(of: process, until: stop).windows
+    }
+
+    /// What asking an app for its windows (`windows(of:)`) came to.
+    struct WindowSearch {
+        var windows: [AppWindow] = []
+
+        /// False when the app stopped answering, and wasn't asked any more.
+        var answered = true
+
+        /// Whether the app is hidden, when that was asked.
         var hidden: Bool?
-        var found: [AppWindow] = []
+    }
+
+    /// `windows(of:)`, with whether the app answered and is hidden.
+    func searchWindows(of process: RunningApp, until stop: () -> Bool) -> WindowSearch {
+        let pid = process.processIdentifier
+        var search = WindowSearch()
+        let windows: [AnyObject]
+        do {
+            windows = try ax.elements(kAXWindowsAttribute, of: ax.application(pid))
+        } catch {
+            search.answered = false
+            return search
+        }
+
         for window in windows {
             if stop() {
                 break
@@ -197,9 +219,11 @@ extension MacDesktop {
                 let subrole = try ax.subrole(of: window)
                 if subrole == kAXDialogSubrole {
                     if try ax.number(kAXMinimizedAttribute, of: window) != 1 {
-                        let appHidden = hidden ?? isHidden(pid)
-                        hidden = appHidden
-                        guard appHidden, try canMinimize(window) else { continue }
+                        if search.hidden == nil {
+                            search.hidden = try ax.number(kAXHiddenAttribute, of: ax.application(pid)) == 1
+                        }
+
+                        guard search.hidden == true, try canMinimize(window) else { continue }
                     }
                 } else if subrole != nil && subrole != kAXStandardWindowSubrole {
                     continue
@@ -209,13 +233,14 @@ extension MacDesktop {
                 let info = WindowInfo(
                     handle: ax.windowNumber(of: window) ?? 0, processId: Int(pid), processName: process.processName,
                     title: title, appName: process.name)
-                found.append(AppWindow(info: info, element: window))
+                search.windows.append(AppWindow(info: info, element: window))
             } catch {
+                search.answered = false
                 break
             }
         }
 
-        return found
+        return search
     }
 
     /// The window has a minimize button that works (kAXMinimizeButtonAttribute, enabled), as a document window has, and

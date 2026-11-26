@@ -144,25 +144,27 @@ final class WindowsTests: XCTestCase {
 
     // MARK: The time limit
 
-    /// Apps are asked for their windows for 1.5 s: one slow to answer ends the search there, and the windows found by
-    /// then are listed.
-    func testAnAppSlowToAnswerEndsTheSearch() async throws {
+    /// Apps are asked for their windows for 1.5 s, the app in front first, then the others in the order of their
+    /// front-most window on screen, whatever order they run in: one slow to answer ends the search there, so what's
+    /// cut is at the back, and the app in front's windows are always listed. An app that didn't answer isn't asked
+    /// whether it's hidden.
+    func testTheAppInFrontIsAskedFirstAndASlowAppEndsTheSearch() async throws {
         let rig = Rig()
-        rig.front(42, "com.apple.TextEdit", "TextEdit", window: .window(title: "Notes.txt", number: 420))
-        let slow = FakeElement.app(pid: 43)
-        slow.answers = false
-        rig.ax.apps[43] = slow
-        rig.workspace.run(43, "com.example.Slow", "Slow")
         let notes = FakeElement.app(pid: 44)
         notes[kAXWindowsAttribute] = [FakeElement.window(pid: 44, title: "Shopping", number: 440)]
         rig.ax.apps[44] = notes
         rig.workspace.run(44, "com.apple.Notes", "Notes")
-        rig.workspace.windowOrder = [420, 440]
+        let slow = FakeElement.app(pid: 43)
+        slow.answers = false
+        rig.ax.apps[43] = slow
+        rig.workspace.run(43, "com.example.Slow", "Slow")
+        rig.front(42, "com.apple.TextEdit", "TextEdit", window: .window(title: "Notes.txt", number: 420))
+        rig.workspace.front = rig.workspace.app(42)
+        onScreen(rig, [(number: 430, owner: 43), (number: 420, owner: 42), (number: 440, owner: 44)])
         let time = rig.time
         let asked = LogLines()
         rig.ax.onRead = { element, attribute in
-            guard attribute == kAXWindowsAttribute else { return }
-            asked.add("\(element.pid)")
+            asked.add("\(element.pid) \(attribute)")
             if element.pid == 43 {
                 time.advance(2)
             }
@@ -170,12 +172,37 @@ final class WindowsTests: XCTestCase {
 
         let listed = try await rig.desktop.listWindows()
         XCTAssertEqual([420], listed.map(\.window.handle))
-        XCTAssertEqual(["42", "43"], asked.lines)
+        XCTAssertNotNil(listed.first?.rect)
+        let apps: [String] = asked.lines.filter { $0.hasSuffix(" \(kAXWindowsAttribute)") }
+        XCTAssertEqual(["42 \(kAXWindowsAttribute)", "43 \(kAXWindowsAttribute)"], apps)
+        XCTAssertEqual(["43 \(kAXWindowsAttribute)"], asked.lines.filter { $0.hasPrefix("43 ") })
         XCTAssertEqual("window list: 1 windows, 2000 ms", rig.log.lines.last)
     }
 
+    /// A search that runs past 3 s leaves no time to describe the windows found: they're listed with what's known,
+    /// their app, number and title, without a frame, never an empty list.
+    func testWindowsFoundTooLateToDescribeAreListedByWhatsKnown() async throws {
+        let rig = Rig()
+        let notes = FakeElement.window(title: "Notes.txt", number: 420)
+        rig.front(42, "com.apple.TextEdit", "TextEdit", window: notes)
+        let time = rig.time
+        let slowed = LogLines()
+        rig.ax.onRead = { element, attribute in
+            if attribute == kAXTitleAttribute, element === notes, slowed.lines.isEmpty {
+                slowed.add("title")
+                time.advance(3.5)
+            }
+        }
+
+        let listed = try await rig.desktop.listWindows()
+        let front = try XCTUnwrap(rig.desktop.foregroundWindow())
+        XCTAssertEqual([DesktopWindow(window: front, show: .normal)], listed)
+        XCTAssertEqual("window list: 1 windows (1 not described), 3500 ms", rig.log.lines.last)
+    }
+
     /// The windows are described front-most first. An app that stops answering is asked nothing more: its windows are
-    /// listed by what's known, without a frame. Describing stops at 3 s: a window not reached by then isn't listed.
+    /// listed by what's known, without a frame. Describing stops at 3 s: a window not reached by then is listed by
+    /// what's known too.
     func testDescribingStopsForAnAppThatDoesntAnswerAndAtTheTimeLimit() async throws {
         let rig = Rig()
         let windows: [FakeElement] = [1, 2, 3].map { (number: Int) -> FakeElement in
@@ -195,8 +222,9 @@ final class WindowsTests: XCTestCase {
 
         var listed = try await rig.desktop.listWindows()
         XCTAssertEqual([1, 2, 3], listed.map(\.window.handle))
-        let rects: [ScreenRect?] = [ScreenRect(x: 0, y: 0, width: 1000, height: 800), nil, nil]
-        XCTAssertEqual(rects, listed.map(\.rect))
+        let frame = ScreenRect(x: 0, y: 0, width: 1000, height: 800)
+        let unanswered: [ScreenRect?] = [frame, nil, nil]
+        XCTAssertEqual(unanswered, listed.map(\.rect))
         XCTAssertEqual(["1", "2"], described.lines)
 
         windows[1].answers = true
@@ -208,11 +236,15 @@ final class WindowsTests: XCTestCase {
         }
 
         listed = try await rig.desktop.listWindows()
-        XCTAssertEqual([1, 2], listed.map(\.window.handle))
+        XCTAssertEqual([1, 2, 3], listed.map(\.window.handle))
+        let cut: [ScreenRect?] = [frame, frame, nil]
+        XCTAssertEqual(cut, listed.map(\.rect))
+        XCTAssertEqual("window list: 3 windows (1 not described), 3500 ms", rig.log.lines.last)
     }
 
-    /// Should the 4-second limit pass all the same, the windows described by then are the list.
-    func testTheWindowsDescribedWhenTheTimeRunsOutAreTheList() async throws {
+    /// Should the 4-second limit pass all the same, the windows found by then are the list: those described, and the
+    /// others by what's known.
+    func testTheWindowsFoundWhenTheTimeRunsOutAreTheList() async throws {
         let rig = Rig()
         let windows: [FakeElement] = [1, 2].map { (number: Int) -> FakeElement in
             FakeElement.window(title: "Note \(number)", number: number)
@@ -227,8 +259,19 @@ final class WindowsTests: XCTestCase {
         }
 
         let listed = try await rig.desktop.listWindows()
-        XCTAssertEqual([1], listed.map(\.window.handle))
-        XCTAssertEqual("window list timed out with 1 windows", rig.log.lines.last)
+        XCTAssertEqual([1, 2], listed.map(\.window.handle))
+        let rects: [ScreenRect?] = [ScreenRect(x: 0, y: 0, width: 1000, height: 800), nil]
+        XCTAssertEqual(rects, listed.map(\.rect))
+        XCTAssertTrue(rig.log.lines.contains("window list timed out with 2 windows"), "\(rig.log.lines)")
+    }
+
+    /// The windows on screen, front-most first, with the app each belongs to.
+    private func onScreen(_ rig: Rig, _ windows: [(number: Int, owner: pid_t)]) {
+        rig.workspace.windowOrder = windows.map { $0.number }
+        for window in windows {
+            rig.workspace.serverWindows[window.number] = ServerWindow(
+                number: window.number, owner: window.owner, bounds: CGRect(x: 0, y: 0, width: 1000, height: 800))
+        }
     }
 
     /// A title bar's minimize button, enabled or not.
