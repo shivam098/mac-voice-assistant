@@ -47,6 +47,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Xcode 16.4 whatever the runner's default becomes, so a change there can't silently change a release's toolchain
+      # (the release notes name it).
+      - name: Select Xcode 16.4
+        run: |
+          xcode=/Applications/Xcode_16.4.app
+          if [[ ! -d "$xcode" ]]; then
+            installed=(/Applications/Xcode*.app)
+            echo "::error::$xcode isn't on this runner. It has: ${installed[*]}" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          selected="$(xcodebuild -version)"
+          if [[ "${selected%%$'\n'*}" != "Xcode 16.4" ]]; then
+            echo "::error::$xcode is ${selected%%$'\n'*}, not Xcode 16.4" >&2
+            exit 1
+          fi
+
       - name: Tools
         run: |
           sw_vers
