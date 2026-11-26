@@ -4,8 +4,9 @@ For whoever picks this up on a Mac: a person, or a coding agent started in this 
 through it in order: check where things stand, set up the Mac, build and test, install and set up the app, run the
 checks only a real Mac can do, then report what you found.
 
-Written on 26 November 2026 on a Windows PC with no Mac, while coding agents there were still finishing features through
-PRs. Until now everything has been built and tested only on GitHub's macOS runners.
+Written on 26 November 2026 on a Windows PC with no Mac, while coding agents there finished the features through PRs,
+and last updated when the v0.1.0 test build was published the same day. Until the owner's Mac arrived, everything was
+built and tested only on GitHub's macOS runners.
 
 ## 1. Where things stand
 
@@ -15,7 +16,7 @@ Windows app (shivam098/windows-voice-assistant). Its dictation is ThumbFree for 
 this package pins to a commit of that repo's main (`606d7a4` for v0.1.0); the Mac workflow's daily run builds against
 the tip of its main instead, to catch a change there. docs/design.md is the design and has the phase table.
 
-Merged (main was `3a7aea7` when this was last updated):
+Merged (main was `fee17c3` when this was last updated):
 
 - **The idea board and the assistant's core in Swift** (PRs #1–#5): commands and the wake word, the navigation and
   editing grammars, the AI brain's prompt and plan reader, and the interaction controller. Every C# core test is
@@ -46,19 +47,20 @@ Merged (main was `3a7aea7` when this was last updated):
   requirements; a fix so Safari's address bar isn't taken for a page box; and the NavigationLab acceptance tests
   N1–N9, with N10 and N16, passing through the app's self-test in Chrome and Safari on GitHub's Mac (33 checks each).
 
-In review or being built on the Windows PC, through PRs (check `gh pr list`):
+- **The v0.1.0 release** (#28): thumbfree-mac pinned, the daily canary against its main, and the docs for the finished
+  app.
 
-- **The v0.1.0 release** (#28, branch `release-0.1.0`): thumbfree-mac pinned, the daily canary against its main, and
-  the docs for the finished app. Once it has merged, the Release workflow publishes the v0.1.0 pre-release.
+**Published:** [v0.1.0](https://github.com/shivam098/mac-voice-assistant/releases/tag/v0.1.0), a pre-release (test
+build) of the whole app, built by the Release workflow from `fee17c3`: `VoiceAssistant-0.1.0.dmg` and `SHA256SUMS`.
 
-The unfinished work once saved on `wip/` branches has since been finished in #20, #22 and #25, and those branches are
-gone.
+Nothing else is in review or being built on the Windows PC. The unfinished work once saved on `wip/` branches has since
+been finished in #20, #22 and #25, and those branches are gone.
 
-**What that means on this Mac today:** the App workflow's .dmg from main is the whole app, navigation and window
-switching included, and testing on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building
-there needs #19 (Swift 6.3's type check) until it merges. So: set up the Mac, run every test, including the ones that
-need a real Mac (sections 3 and 5), measure the AI brain on a real graphics chip, then install v0.1.0 once it's
-released (or the latest .dmg from main) and go through the app checklist in section 5.
+**What that means on this Mac today:** v0.1.0 is the whole app, navigation and window switching included, and testing
+on the owner's Mac (an M1 Max with macOS 27.0.1 and Xcode 26.6) has started: building there needs #19 (Swift 6.3's
+type check) until it merges. So: set up the Mac, run every test, including the ones that need a real Mac (sections 3
+and 5), measure the AI brain on a real graphics chip, then install v0.1.0 (section 4) and go through the app checklist
+in section 5.
 
 Before you start, see what has changed since this was written:
 
@@ -141,17 +143,24 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
 
 ## 4. Install and set up the app
 
-1. **Get the app.** Either build it here:
+1. **Get the app.** Download the v0.1.0 release and check it:
 
    ```sh
-   scripts/make-app.sh      # dist/Voice Assistant.app and dist/VoiceAssistant-0.1.0.dmg
+   gh release download v0.1.0 --repo shivam098/mac-voice-assistant
+   shasum -a 256 -c SHA256SUMS
    ```
 
-   or download the .dmg CI built from the latest App run on main (or the v0.1.0 release, once there is one):
+   For a newer main, download the .dmg CI built from the latest App run on main:
 
    ```sh
    gh run list --workflow App --branch main --limit 1
    gh run download <run id> -n VoiceAssistant-dmg
+   ```
+
+   Or build it here:
+
+   ```sh
+   scripts/make-app.sh      # dist/Voice Assistant.app and dist/VoiceAssistant-0.1.0.dmg
    ```
 
 2. **Install it:** open the .dmg and drag Voice Assistant to Applications. Test builds are signed ad hoc, so macOS
@@ -185,7 +194,7 @@ Anything that fails here but passes on CI is a finding: write it down (section 6
    call (section 8).
 2. **The Accessibility tests, the navigation integration tests and the brain's integration test** (section 3) here.
 
-**Once the whole app is out** (v0.1.0, or the App workflow's .dmg after the wiring PR has merged):
+**With the whole app installed** (v0.1.0, section 4):
 
 3. **[docs/testing.md](testing.md)'s checklist**, top to bottom. It includes at least the following:
    - the menu bar item, its menu and the status pill;
